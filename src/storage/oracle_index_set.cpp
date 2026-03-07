@@ -25,7 +25,7 @@ JOIN all_ind_columns ic ON i.owner = ic.index_owner
 WHERE i.owner = %s
 ORDER BY i.index_name, ic.column_position
 )",
-	    OracleUtils::WriteLiteral(StringUtil::Upper(schema.name)));
+	    OracleUtils::WriteLiteral(StringUtil::Upper(schema.oracle_name)));
 
 	auto result = transaction.Query(query);
 	if (!result || result->Count() == 0) {

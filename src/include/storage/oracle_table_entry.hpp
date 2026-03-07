@@ -52,6 +52,9 @@ public:
 	//! Lookup a column index by name (returns invalid index if not found)
 	PhysicalIndex GetColumnIndex(const string &name, bool silence_error = false) const;
 
+	//! The actual Oracle schema (owner) name for Oracle DML/scan queries.
+	//! Equals schema.name for normal schemas; equals the default schema for the "main" alias.
+	string oracle_schema_name;
 	//! The column names as stored in Oracle data dictionary (may differ in case)
 	vector<string> oracle_names;
 	vector<OracleType> oracle_types;

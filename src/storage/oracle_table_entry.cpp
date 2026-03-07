@@ -33,13 +33,15 @@ OracleTableInfo::OracleTableInfo(const string &schema_name, const string &table_
 OracleTableEntry::OracleTableEntry(Catalog &catalog, SchemaCatalogEntry &schema,
                                     OracleTableInfo &info)
     : TableCatalogEntry(catalog, schema, *info.create_info),
+      oracle_schema_name(schema.Cast<OracleSchemaEntry>().oracle_name),
       oracle_names(info.oracle_names), oracle_types(info.oracle_types),
       approx_num_rows(info.approx_num_rows) {
 }
 
 OracleTableEntry::OracleTableEntry(Catalog &catalog, SchemaCatalogEntry &schema,
                                     CreateTableInfo &info)
-    : TableCatalogEntry(catalog, schema, info) {
+    : TableCatalogEntry(catalog, schema, info),
+      oracle_schema_name(schema.Cast<OracleSchemaEntry>().oracle_name) {
 }
 
 unique_ptr<BaseStatistics> OracleTableEntry::GetStatistics(ClientContext &context,
@@ -55,7 +57,7 @@ TableFunction OracleTableEntry::GetScanFunction(ClientContext &context,
 
 	result->dsn = catalog.connection_string;
 	result->attach_path = catalog.attach_path;
-	result->schema_name = this->schema.name;
+	result->schema_name = oracle_schema_name;
 	result->table_name = this->name;
 	result->oracle_types = oracle_types;
 	result->approx_num_rows = approx_num_rows;

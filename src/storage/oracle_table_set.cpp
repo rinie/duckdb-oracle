@@ -199,7 +199,7 @@ void OracleTableSet::LoadEntries(ClientContext &context, OracleTransaction &tran
 	table_result.reset();
 	constraint_result.reset();
 
-	unordered_map<string, string> binds = {{"owner", StringUtil::Upper(schema.name)}};
+	unordered_map<string, string> binds = {{"owner", StringUtil::Upper(schema.oracle_name)}};
 
 	auto col_result = transaction.Query(GetSchemaColumnsQuery(), binds);
 	if (!col_result || col_result->Count() == 0) {
@@ -224,7 +224,7 @@ unique_ptr<OracleTableInfo> OracleTableSet::GetTableInfo(OracleTransaction &tran
                                                           OracleSchemaEntry &schema,
                                                           const string &table_name) {
 	unordered_map<string, string> binds = {
-	    {"owner",      StringUtil::Upper(schema.name)},
+	    {"owner",      StringUtil::Upper(schema.oracle_name)},
 	    {"table_name", StringUtil::Upper(table_name)}};
 	auto col_result = transaction.Query(GetColumnsQuery(), binds);
 	if (!col_result || col_result->Count() == 0) {
@@ -367,7 +367,7 @@ string OracleTableSet::GetAlterTablePrefix(ClientContext &context,
                                             OracleTransaction &transaction,
                                             const string &name) {
 	string sql = "ALTER TABLE ";
-	sql += OracleUtils::QuoteIdentifier(schema.name) + ".";
+	sql += OracleUtils::QuoteIdentifier(schema.oracle_name) + ".";
 	sql += OracleUtils::QuoteIdentifier(name);
 	return sql;
 }
@@ -375,7 +375,7 @@ string OracleTableSet::GetAlterTablePrefix(ClientContext &context,
 string OracleTableSet::GetAlterTablePrefix(const string &name,
                                             optional_ptr<CatalogEntry> entry) {
 	string sql = "ALTER TABLE ";
-	sql += OracleUtils::QuoteIdentifier(schema.name) + ".";
+	sql += OracleUtils::QuoteIdentifier(schema.oracle_name) + ".";
 	sql += OracleUtils::QuoteIdentifier(entry ? entry->name : name);
 	return sql;
 }
