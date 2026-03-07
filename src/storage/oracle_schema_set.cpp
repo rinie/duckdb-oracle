@@ -28,27 +28,28 @@ void OracleSchemaSet::LoadEntries(ClientContext &context, OracleTransaction &tra
 	}
 
 	auto result = transaction.Query(query);
-	if (!result) {
-		return;
-	}
-
-	for (idx_t row = 0; row < result->Count(); row++) {
-		auto owner = result->GetString(row, 0);
-		if (OracleSchemaEntry::SchemaIsInternal(owner)) {
-			continue;
+	if (result) {
+		for (idx_t row = 0; row < result->Count(); row++) {
+			auto owner = result->GetString(row, 0);
+			if (OracleSchemaEntry::SchemaIsInternal(owner)) {
+				continue;
+			}
+			CreateSchemaInfo info;
+			info.schema = owner;
+			info.on_conflict = OnCreateConflict::IGNORE_ON_CONFLICT;
+			auto entry = make_shared_ptr<OracleSchemaEntry>(catalog, info);
+			entries[owner] = std::move(entry);
 		}
-		CreateSchemaInfo info;
-		info.schema = owner;
-		info.on_conflict = OnCreateConflict::IGNORE_ON_CONFLICT;
-		auto entry = make_shared_ptr<OracleSchemaEntry>(catalog, info);
-		entries[owner] = std::move(entry);
 	}
 
-	// Register "main" as a DuckDB-visible alias for the default Oracle schema so that
-	// the DuckDB UI (which sets search_path = <catalog>.main on attach) finds a schema
-	// named "main" in ScanSchemas and can list its tables correctly.
+	// Always register "main" as a DuckDB-visible alias for the default Oracle schema so
+	// that the DuckDB UI (which sets search_path = <catalog>.main on attach) finds a
+	// schema named "main" in ScanSchemas and can list its tables correctly.
+	// We do this unconditionally: even if the schema has no tables/views yet (empty
+	// schema, synonyms-only, or query failure) the alias must still exist so that
+	// LookupSchema("main") succeeds and SET schema works.
 	const auto &ds = catalog.GetDefaultSchema();
-	if (!ds.empty() && !StringUtil::CIEquals(ds, "main") && entries.count(ds)) {
+	if (!ds.empty() && !StringUtil::CIEquals(ds, "main")) {
 		CreateSchemaInfo main_info;
 		main_info.schema = "main";
 		main_info.on_conflict = OnCreateConflict::IGNORE_ON_CONFLICT;
