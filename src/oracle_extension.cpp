@@ -139,7 +139,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	// Storage extension
 	auto &config = DBConfig::GetConfig(loader.GetDatabaseInstance());
-	config.storage_extensions["oracle"] = make_uniq<OracleStorageExtension>();
+	config.GetCallbackManager().Register("oracle", make_shared_ptr<OracleStorageExtension>());
 
 	// Extension options
 	config.AddExtensionOption("ora_connection_limit",
@@ -162,10 +162,10 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// Optimizer
 	OptimizerExtension oracle_optimizer;
 	oracle_optimizer.optimize_function = OracleOptimizer::Optimize;
-	config.optimizer_extensions.push_back(std::move(oracle_optimizer));
+	config.GetCallbackManager().Register(std::move(oracle_optimizer));
 
 	// Extension callback
-	config.extension_callbacks.push_back(make_uniq<OracleExtensionCallback>());
+	config.GetCallbackManager().Register(make_shared_ptr<OracleExtensionCallback>());
 	for (auto &connection :
 	     ConnectionManager::Get(loader.GetDatabaseInstance()).GetConnectionList()) {
 		connection->registered_state->Insert(

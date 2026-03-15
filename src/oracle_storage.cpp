@@ -4,6 +4,7 @@
 #include "duckdb/parser/parsed_data/attach_info.hpp"
 #include "storage/oracle_transaction_manager.hpp"
 #include "duckdb/main/config.hpp"
+#include "duckdb/main/settings.hpp"
 
 namespace duckdb {
 
@@ -11,7 +12,7 @@ static unique_ptr<Catalog> OracleAttach(optional_ptr<StorageExtensionInfo> stora
                                          ClientContext &context, AttachedDatabase &db,
                                          const string &name, AttachInfo &info,
                                          AttachOptions &attach_options) {
-	if (!DBConfig::GetConfig(context).options.enable_external_access) {
+	if (!Settings::Get<EnableExternalAccessSetting>(DBConfig::GetConfig(context))) {
 		throw PermissionException(
 		    "Attaching Oracle databases is disabled through configuration");
 	}

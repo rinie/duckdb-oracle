@@ -64,7 +64,7 @@ SinkFinalizeType OracleDelete::Finalize(Pipeline &pipeline, Event &event,
 	return SinkFinalizeType::READY;
 }
 
-SourceResultType OracleDelete::GetData(ExecutionContext &context, DataChunk &chunk,
+SourceResultType OracleDelete::GetDataInternal(ExecutionContext &context, DataChunk &chunk,
                                                 OperatorSourceInput &input) const {
 	auto &gstate = sink_state->Cast<OracleDeleteGlobalState>();
 	chunk.SetCardinality(1);

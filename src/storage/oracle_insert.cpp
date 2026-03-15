@@ -182,7 +182,7 @@ SinkFinalizeType OracleInsert::Finalize(Pipeline &pipeline, Event &event,
 // Source (return count)
 // ---------------------------------------------------------------------------
 
-SourceResultType OracleInsert::GetData(ExecutionContext &context, DataChunk &chunk,
+SourceResultType OracleInsert::GetDataInternal(ExecutionContext &context, DataChunk &chunk,
                                                 OperatorSourceInput &input) const {
 	auto &insert_gstate = sink_state->Cast<OracleInsertGlobalState>();
 	chunk.SetCardinality(1);

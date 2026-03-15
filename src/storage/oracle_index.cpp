@@ -38,7 +38,7 @@ public:
 		return true;
 	}
 
-	SourceResultType GetData(ExecutionContext &context, DataChunk &chunk,
+	SourceResultType GetDataInternal(ExecutionContext &context, DataChunk &chunk,
 	                                  OperatorSourceInput &input) const override {
 		auto &catalog = table.catalog;
 		auto &schema = table.schema;
