@@ -18,7 +18,7 @@ namespace duckdb {
 OracleTableSet::OracleTableSet(OracleSchemaEntry &schema,
                                 unique_ptr<OracleResultSlice> tables,
                                 unique_ptr<OracleResultSlice> constraints)
-    : OracleInSchemaSet(schema, !tables),
+    : OracleInSchemaSet(schema, false),  // always start unloaded; LoadEntries handles pre-loaded slices
       table_result(std::move(tables)),
       constraint_result(std::move(constraints)) {
 }
@@ -64,16 +64,13 @@ ORDER BY cc.table_name, cc.constraint_name, cc.position
 }
 
 string OracleTableSet::GetSchemaColumnsQuery() {
-	// Bulk load: column info for ALL tables+views in a schema in one round-trip.
-	// all_tab_columns covers both tables and views; LEFT JOIN all_tables for num_rows.
+	// Bulk load: column info for ALL tables+views in a schema — no JOIN for num_rows.
 	// Bind :owner before executing.
 	return R"(
-SELECT c.owner, c.table_name, NVL(tbl.num_rows, 0) AS num_rows,
+SELECT c.owner, c.table_name, 0 AS num_rows,
        c.column_name, c.data_type, c.data_length, c.data_precision, c.data_scale,
        c.nullable, c.column_id
 FROM all_tab_columns c
-LEFT JOIN all_tables tbl
-  ON c.owner = tbl.owner AND c.table_name = tbl.table_name
 WHERE c.owner = :owner
 ORDER BY c.table_name, c.column_id
 )";
@@ -94,6 +91,73 @@ WHERE cc.owner = :owner
   AND con.constraint_type IN ('P','U')
 ORDER BY cc.table_name, cc.constraint_name, cc.position
 )";
+}
+
+// ---------------------------------------------------------------------------
+// USER_* view variants (Optimization 2)
+// ---------------------------------------------------------------------------
+
+string OracleTableSet::GetUserColumnsQuery() {
+	// USER_* views skip privilege checks — much faster for the connected user's schema.
+	// Column layout must match GetColumnsQuery(): owner(0), table_name(1), num_rows(2), ...
+	return R"(
+SELECT USER AS owner, c.table_name, 0 AS num_rows,
+       c.column_name, c.data_type, c.data_length, c.data_precision, c.data_scale,
+       c.nullable, c.column_id
+FROM user_tab_columns c
+WHERE c.table_name = :table_name
+ORDER BY c.column_id
+)";
+}
+
+string OracleTableSet::GetUserConstraintsQuery() {
+	return R"(
+SELECT cc.table_name, cc.constraint_name, con.constraint_type,
+       cc.column_name, cc.position
+FROM user_cons_columns cc
+JOIN user_constraints con
+  ON cc.constraint_name = con.constraint_name
+ AND cc.table_name      = con.table_name
+WHERE cc.table_name = :table_name
+  AND con.constraint_type IN ('P','U')
+ORDER BY cc.table_name, cc.constraint_name, cc.position
+)";
+}
+
+string OracleTableSet::GetUserSchemaColumnsQuery() {
+	return R"(
+SELECT USER AS owner, c.table_name, 0 AS num_rows,
+       c.column_name, c.data_type, c.data_length, c.data_precision, c.data_scale,
+       c.nullable, c.column_id
+FROM user_tab_columns c
+ORDER BY c.table_name, c.column_id
+)";
+}
+
+string OracleTableSet::GetUserSchemaConstraintsQuery() {
+	return R"(
+SELECT cc.table_name, cc.constraint_name, con.constraint_type,
+       cc.column_name, cc.position
+FROM user_cons_columns cc
+JOIN user_constraints con
+  ON cc.constraint_name = con.constraint_name
+ AND cc.table_name      = con.table_name
+WHERE con.constraint_type IN ('P','U')
+ORDER BY cc.table_name, cc.constraint_name, cc.position
+)";
+}
+
+// ---------------------------------------------------------------------------
+// Row-count queries (Optimization 3)
+// ---------------------------------------------------------------------------
+
+string OracleTableSet::GetSchemaRowCountsQuery() {
+	// Lightweight row-count fetch — no join needed.
+	return "SELECT table_name, NVL(num_rows, 0) FROM all_tables WHERE owner = :owner";
+}
+
+string OracleTableSet::GetUserSchemaRowCountsQuery() {
+	return "SELECT table_name, NVL(num_rows, 0) FROM user_tables";
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +198,8 @@ void OracleTableSet::AddColumn(OracleResult &result, idx_t row,
 void OracleTableSet::CreateEntries(OracleTransaction &transaction,
                                     OracleResult &col_result, OracleResult &con_result,
                                     idx_t col_start, idx_t col_end, idx_t con_start,
-                                    idx_t con_end) {
+                                    idx_t con_end,
+                                    const case_insensitive_map_t<int64_t> &row_counts) {
 	vector<unique_ptr<OracleTableInfo>> tables;
 	unique_ptr<OracleTableInfo> info;
 
@@ -145,7 +210,14 @@ void OracleTableSet::CreateEntries(OracleTransaction &transaction,
 			if (info) {
 				tables.push_back(std::move(info));
 			}
-			int64_t num_rows = col_result.IsNull(row, 2) ? 0 : col_result.GetInt64(row, 2);
+			// Prefer row_counts map; fall back to col 2 if available.
+			int64_t num_rows = 0;
+			auto rc_it = row_counts.find(table_name);
+			if (rc_it != row_counts.end()) {
+				num_rows = rc_it->second;
+			} else if (!col_result.IsNull(row, 2)) {
+				num_rows = col_result.GetInt64(row, 2);
+			}
 			info = make_uniq<OracleTableInfo>(schema, table_name);
 			info->approx_num_rows = (idx_t)num_rows;
 		}
@@ -193,27 +265,59 @@ void OracleTableSet::CreateEntries(OracleTransaction &transaction,
 // ---------------------------------------------------------------------------
 
 void OracleTableSet::LoadEntries(ClientContext &context, OracleTransaction &transaction) {
-	// Bulk load: fetch all column and constraint info for the whole schema in two
-	// round-trips, then build fully-populated entries via CreateEntries.
-	// This avoids N per-table round-trips when the caller scans all tables.
-	table_result.reset();
-	constraint_result.reset();
+	if (table_result) {
+		// Pre-loaded by OracleSchemaSet bulk load — use it directly.
+		OracleResult empty_con;
+		auto &con_ref = constraint_result ? constraint_result->result : empty_con;
+		idx_t con_start = constraint_result ? constraint_result->start : 0;
+		idx_t con_end   = constraint_result ? constraint_result->end   : 0;
+		CreateEntries(transaction, table_result->result, con_ref,
+		              table_result->start, table_result->end, con_start, con_end);
+		table_result.reset();
+		constraint_result.reset();
+		return;
+	}
+
+	// Standard Oracle query path (Optimizations 2, 3)
+	bool is_current_user = schema.IsCurrentUserSchema();
 
 	unordered_map<string, string> binds = {{"owner", StringUtil::Upper(schema.oracle_name)}};
+	// USER_* queries genuinely require no bind parameters (they implicitly scope to
+	// the connected user); ALL_* queries need :owner. Both are correct as written.
+	static const unordered_map<string, string> empty_binds = {};
 
-	auto col_result = transaction.Query(GetSchemaColumnsQuery(), binds);
+	// Choose queries based on whether this is the current user's schema.
+	// USER_* queries need no bind params; ALL_* queries need :owner.
+	const string cols_query = is_current_user ? GetUserSchemaColumnsQuery() : GetSchemaColumnsQuery();
+	const string cons_query = is_current_user ? GetUserSchemaConstraintsQuery() : GetSchemaConstraintsQuery();
+	const string rc_query   = is_current_user ? GetUserSchemaRowCountsQuery() : GetSchemaRowCountsQuery();
+	const unordered_map<string, string> &query_binds = is_current_user ? empty_binds : binds;
+
+	// Fire three queries sequentially: columns, constraints, row counts.
+	auto col_result = transaction.Query(cols_query, query_binds);
 	if (!col_result || col_result->Count() == 0) {
 		return;
 	}
 
 	// Constraints are optional — views have none, so an empty result is fine.
-	auto con_result = transaction.Query(GetSchemaConstraintsQuery(), binds);
+	auto con_result = transaction.Query(cons_query, query_binds);
+
+	// Row counts — lightweight, separate from column query (no LEFT JOIN overhead).
+	case_insensitive_map_t<int64_t> row_counts;
+	auto rc_result = transaction.Query(rc_query, query_binds);
+	if (rc_result) {
+		for (idx_t r = 0; r < rc_result->Count(); r++) {
+			row_counts[rc_result->GetString(r, 0)] = rc_result->GetInt64(r, 1);
+		}
+	}
+
 	OracleResult empty_con;
 	auto &con_ref = con_result ? *con_result : empty_con;
 
 	CreateEntries(transaction, *col_result, con_ref,
 	              0, col_result->Count(),
-	              0, con_ref.Count());
+	              0, con_ref.Count(),
+	              row_counts);
 }
 
 // ---------------------------------------------------------------------------
@@ -223,14 +327,24 @@ void OracleTableSet::LoadEntries(ClientContext &context, OracleTransaction &tran
 unique_ptr<OracleTableInfo> OracleTableSet::GetTableInfo(OracleTransaction &transaction,
                                                           OracleSchemaEntry &schema,
                                                           const string &table_name) {
+	bool is_current_user = schema.IsCurrentUserSchema();
+
 	unordered_map<string, string> binds = {
 	    {"owner",      StringUtil::Upper(schema.oracle_name)},
 	    {"table_name", StringUtil::Upper(table_name)}};
-	auto col_result = transaction.Query(GetColumnsQuery(), binds);
+
+	// USER_* views skip privilege checks — much faster for the connected user's own schema.
+	const string cols_query = is_current_user ? GetUserColumnsQuery() : GetColumnsQuery();
+	const string cons_query = is_current_user ? GetUserConstraintsQuery() : GetConstraintsQuery();
+	// USER_* queries only need :table_name; ALL_* queries also need :owner.
+	const unordered_map<string, string> user_binds = {{"table_name", StringUtil::Upper(table_name)}};
+	const unordered_map<string, string> &query_binds = is_current_user ? user_binds : binds;
+
+	auto col_result = transaction.Query(cols_query, query_binds);
 	if (!col_result || col_result->Count() == 0) {
 		return nullptr;
 	}
-	auto con_result = transaction.Query(GetConstraintsQuery(), binds);
+	auto con_result = transaction.Query(cons_query, query_binds);
 
 	auto table_info = make_uniq<OracleTableInfo>(schema, table_name);
 	idx_t col_rows = col_result->Count();

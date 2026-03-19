@@ -23,17 +23,44 @@ OracleSchemaEntry::OracleSchemaEntry(Catalog &catalog, CreateSchemaInfo &info,
       indexes(*this, std::move(indexes)), types(*this) {
 }
 
-bool OracleSchemaEntry::SchemaIsInternal(const string &name) {
-	// Oracle internal schemas to hide
-	static const vector<string> internal_schemas = {
+// Single source of truth for Oracle internal schema names.
+static const vector<string> &OracleInternalSchemaNames() {
+	static const vector<string> schemas = {
 	    "SYS", "SYSTEM", "OUTLN", "XDB", "MDSYS", "CTXSYS", "DBSNMP", "APPQOSSYS",
 	    "OJVMSYS", "GSMADMIN_INTERNAL", "ORDDATA", "ORDSYS", "SI_INFORMTN_SCHEMA"};
-	for (auto &s : internal_schemas) {
+	return schemas;
+}
+
+bool OracleSchemaEntry::SchemaIsInternal(const string &name) {
+	for (auto &s : OracleInternalSchemaNames()) {
 		if (StringUtil::CIEquals(name, s)) {
 			return true;
 		}
 	}
 	return false;
+}
+
+string OracleSchemaEntry::InternalOwnersSQL() {
+	// Build the SQL literal list once, e.g. "'SYS','SYSTEM',..."
+	static const string sql = []() {
+		string out;
+		for (auto &s : OracleInternalSchemaNames()) {
+			if (!out.empty()) {
+				out += ",";
+			}
+			out += "'" + s + "'";
+		}
+		return out;
+	}();
+	return sql;
+}
+
+bool OracleSchemaEntry::IsCurrentUserSchema() const {
+	// Use oracle_name (not name) so the "main" alias schema also benefits from
+	// USER_* views — oracle_name equals the connected user for both the real
+	// schema and the "main" alias that points at it.
+	return StringUtil::CIEquals(oracle_name,
+	                             ParentCatalog().Cast<OracleCatalog>().GetDefaultSchema());
 }
 
 OracleCatalogSet &OracleSchemaEntry::GetCatalogSet(CatalogType type) {

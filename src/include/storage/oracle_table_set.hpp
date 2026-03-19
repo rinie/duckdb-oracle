@@ -49,6 +49,16 @@ public:
 	//! SQL to fetch constraint info for ALL tables in a schema (use :owner bind param only)
 	static string GetSchemaConstraintsQuery();
 
+	//! USER_* view variants (no :owner bind needed — faster for the connected user's schema)
+	static string GetUserColumnsQuery();
+	static string GetUserConstraintsQuery();
+	static string GetUserSchemaColumnsQuery();
+	static string GetUserSchemaConstraintsQuery();
+
+	//! Row-count queries (separate lightweight queries, no JOIN needed)
+	static string GetSchemaRowCountsQuery();
+	static string GetUserSchemaRowCountsQuery();
+
 protected:
 	void LoadEntries(ClientContext &context, OracleTransaction &transaction) override;
 	bool SupportReload() const override {
@@ -74,7 +84,8 @@ protected:
 
 	void CreateEntries(OracleTransaction &transaction, OracleResult &col_result,
 	                   OracleResult &con_result, idx_t col_start, idx_t col_end,
-	                   idx_t con_start, idx_t con_end);
+	                   idx_t con_start, idx_t con_end,
+	                   const case_insensitive_map_t<int64_t> &row_counts = {});
 
 private:
 	string GetAlterTablePrefix(ClientContext &context, OracleTransaction &transaction,

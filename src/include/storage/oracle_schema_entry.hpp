@@ -59,6 +59,10 @@ public:
 	                                        const EntryLookupInfo &lookup_info) override;
 
 	static bool SchemaIsInternal(const string &name);
+	//! SQL literal list of internal owners for NOT IN (...) clauses, e.g. "'SYS','SYSTEM',..."
+	static string InternalOwnersSQL();
+	//! True when this schema's name matches the connected user (enables USER_* views)
+	bool IsCurrentUserSchema() const;
 
 private:
 	void TryDropEntry(ClientContext &context, CatalogType catalog_type, const string &name);
