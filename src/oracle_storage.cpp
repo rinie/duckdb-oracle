@@ -21,7 +21,7 @@ static unique_ptr<Catalog> OracleAttach(optional_ptr<StorageExtensionInfo> stora
 	string secret_name;
 	string schema_to_load;
 	OracleIsolationLevel isolation_level = OracleIsolationLevel::READ_COMMITTED;
-	OraclePrivilegeLevel privilege_level = OraclePrivilegeLevel::ALL;
+	OraclePrivilegeLevel privilege_level = OraclePrivilegeLevel::USER;
 
 	for (auto &entry : attach_options.options) {
 		auto lower_name = StringUtil::Lower(entry.first);
