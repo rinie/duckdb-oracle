@@ -18,9 +18,7 @@ class OracleSchemaEntry;
 
 class OracleTableSet : public OracleInSchemaSet {
 public:
-	explicit OracleTableSet(OracleSchemaEntry &schema,
-	                         unique_ptr<OracleResultSlice> tables = nullptr,
-	                         unique_ptr<OracleResultSlice> constraints = nullptr);
+	explicit OracleTableSet(OracleSchemaEntry &schema);
 
 public:
 	optional_ptr<CatalogEntry> CreateTable(OracleTransaction &transaction,
@@ -44,20 +42,14 @@ public:
 	//! SQL to fetch constraint info for a specific owner+table (use :owner / :table_name bind params)
 	static string GetConstraintsQuery();
 
-	//! SQL to fetch column info for ALL tables in a schema (use :owner bind param only)
-	static string GetSchemaColumnsQuery();
-	//! SQL to fetch constraint info for ALL tables in a schema (use :owner bind param only)
-	static string GetSchemaConstraintsQuery();
-
 	//! USER_* view variants (no :owner bind needed — faster for the connected user's schema)
 	static string GetUserColumnsQuery();
 	static string GetUserConstraintsQuery();
-	static string GetUserSchemaColumnsQuery();
-	static string GetUserSchemaConstraintsQuery();
 
-	//! Row-count queries (separate lightweight queries, no JOIN needed)
-	static string GetSchemaRowCountsQuery();
-	static string GetUserSchemaRowCountsQuery();
+	//! SQL to fetch table and view names for a schema (bind :owner)
+	static string GetTableNamesQuery();
+	//! USER_* variant — no bind params needed
+	static string GetUserTableNamesQuery();
 
 protected:
 	void LoadEntries(ClientContext &context, OracleTransaction &transaction) override;
@@ -76,25 +68,11 @@ protected:
 
 	static void AddColumn(OracleResult &result, idx_t row,
 	                       OracleTableInfo &table_info);
-	static void AddConstraint(const string &constraint_type,
-	                           const string &column_name,
-	                           OracleTableInfo &table_info,
-	                           case_insensitive_map_t<vector<string>> &constraint_cols,
-	                           case_insensitive_map_t<string> &constraint_types);
-
-	void CreateEntries(OracleTransaction &transaction, OracleResult &col_result,
-	                   OracleResult &con_result, idx_t col_start, idx_t col_end,
-	                   idx_t con_start, idx_t con_end,
-	                   const case_insensitive_map_t<int64_t> &row_counts = {});
 
 private:
 	string GetAlterTablePrefix(ClientContext &context, OracleTransaction &transaction,
 	                            const string &name);
 	string GetAlterTablePrefix(const string &name, optional_ptr<CatalogEntry> entry);
-
-protected:
-	unique_ptr<OracleResultSlice> table_result;
-	unique_ptr<OracleResultSlice> constraint_result;
 };
 
 } // namespace duckdb

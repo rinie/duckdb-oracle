@@ -14,14 +14,6 @@ OracleSchemaEntry::OracleSchemaEntry(Catalog &catalog, CreateSchemaInfo &info)
       types(*this) {
 }
 
-OracleSchemaEntry::OracleSchemaEntry(Catalog &catalog, CreateSchemaInfo &info,
-                                      unique_ptr<OracleResultSlice> tables,
-                                      unique_ptr<OracleResultSlice> constraints,
-                                      unique_ptr<OracleResultSlice> indexes)
-    : SchemaCatalogEntry(catalog, info), oracle_name(name),
-      tables(*this, std::move(tables), std::move(constraints)),
-      indexes(*this, std::move(indexes)), types(*this) {
-}
 
 // Single source of truth for Oracle internal schema names.
 static const vector<string> &OracleInternalSchemaNames() {

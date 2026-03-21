@@ -13,7 +13,7 @@ namespace duckdb {
 
 class OracleIndexSet : public OracleInSchemaSet {
 public:
-	explicit OracleIndexSet(OracleSchemaEntry &schema, unique_ptr<OracleResultSlice> index_result = nullptr);
+	explicit OracleIndexSet(OracleSchemaEntry &schema);
 
 protected:
 	void LoadEntries(ClientContext &context, OracleTransaction &transaction) override;
@@ -23,7 +23,6 @@ private:
 	//! Shared by both the pre-loaded and the standard Oracle query paths.
 	void PopulateFromResult(OracleResult &result, idx_t start, idx_t end);
 
-	unique_ptr<OracleResultSlice> index_result;
 };
 
 } // namespace duckdb

@@ -7,10 +7,8 @@
 
 namespace duckdb {
 
-OracleIndexSet::OracleIndexSet(OracleSchemaEntry &schema,
-                                unique_ptr<OracleResultSlice> index_result)
-    : OracleInSchemaSet(schema, false),  // always start unloaded
-      index_result(std::move(index_result)) {
+OracleIndexSet::OracleIndexSet(OracleSchemaEntry &schema)
+    : OracleInSchemaSet(schema, false) {
 }
 
 // Oracle data dictionary value for unique indexes.
@@ -43,14 +41,6 @@ void OracleIndexSet::PopulateFromResult(OracleResult &result, idx_t start, idx_t
 }
 
 void OracleIndexSet::LoadEntries(ClientContext &context, OracleTransaction &transaction) {
-	if (index_result) {
-		// Pre-loaded by OracleSchemaSet bulk load — use it directly.
-		PopulateFromResult(index_result->result, index_result->start, index_result->end);
-		index_result.reset();
-		return;
-	}
-
-	// Standard Oracle query path
 	string query = StringUtil::Format(R"(
 SELECT i.index_name, i.table_name, i.uniqueness,
        ic.column_name, ic.column_position

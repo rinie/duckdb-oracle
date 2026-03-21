@@ -17,15 +17,6 @@ class OracleCatalog;
 class OracleSchemaEntry;
 class OracleTransaction;
 
-struct OracleResultSlice {
-	OracleResult result;
-	idx_t start;
-	idx_t end;
-
-	OracleResult &GetResult() {
-		return result;
-	}
-};
 
 class OracleCatalogSet {
 public:
