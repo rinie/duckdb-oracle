@@ -4,6 +4,7 @@
 #include "storage/oracle_transaction.hpp"
 #include "storage/oracle_index_entry.hpp"
 #include "duckdb/parser/parsed_data/create_index_info.hpp"
+#include "oracle_utils.hpp"
 
 namespace duckdb {
 
@@ -41,17 +42,38 @@ void OracleIndexSet::PopulateFromResult(OracleResult &result, idx_t start, idx_t
 }
 
 void OracleIndexSet::LoadEntries(ClientContext &context, OracleTransaction &transaction) {
-	string query = StringUtil::Format(R"(
+	auto level = schema.ParentCatalog().Cast<OracleCatalog>().GetPrivilegeLevel();
+
+	// Choose the index / ind_columns views based on privilege level.
+	// USER_* has no :owner bind and covers only the connected user's own indexes.
+	// ALL_* / DBA_* need an explicit owner literal.
+	string query;
+	if (level == OraclePrivilegeLevel::USER ||
+	    (level == OraclePrivilegeLevel::ALL && schema.IsCurrentUserSchema())) {
+		query = R"(
 SELECT i.index_name, i.table_name, i.uniqueness,
        ic.column_name, ic.column_position
-FROM all_indexes i
-JOIN all_ind_columns ic ON i.owner = ic.index_owner
+FROM user_indexes i
+JOIN user_ind_columns ic
+  ON i.index_name = ic.index_name
+ AND i.table_name = ic.table_name
+ORDER BY i.index_name, ic.column_position
+)";
+	} else {
+		const char *idx_view = (level == OraclePrivilegeLevel::DBA) ? "dba_indexes"     : "all_indexes";
+		const char *ic_view  = (level == OraclePrivilegeLevel::DBA) ? "dba_ind_columns" : "all_ind_columns";
+		query = StringUtil::Format(R"(
+SELECT i.index_name, i.table_name, i.uniqueness,
+       ic.column_name, ic.column_position
+FROM %s i
+JOIN %s ic ON i.owner = ic.index_owner
   AND i.index_name = ic.index_name
   AND i.table_name = ic.table_name
 WHERE i.owner = %s
 ORDER BY i.index_name, ic.column_position
 )",
-	    OracleUtils::WriteLiteral(StringUtil::Upper(schema.oracle_name)));
+		    idx_view, ic_view, OracleUtils::WriteLiteral(StringUtil::Upper(schema.oracle_name)));
+	}
 
 	auto result = transaction.Query(query);
 	if (!result || result->Count() == 0) {

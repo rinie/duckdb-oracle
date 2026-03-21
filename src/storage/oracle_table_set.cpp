@@ -116,6 +116,65 @@ ORDER BY 1
 }
 
 // ---------------------------------------------------------------------------
+// DBA_* queries (require DBA role)
+// ---------------------------------------------------------------------------
+
+string OracleTableSet::GetDbaColumnsQuery() {
+	return R"(
+SELECT c.owner, c.table_name, NVL(tbl.num_rows, 0) AS num_rows,
+       c.column_name, c.data_type, c.data_length, c.data_precision, c.data_scale,
+       c.nullable, c.column_id
+FROM dba_tab_columns c
+LEFT JOIN dba_tables tbl
+  ON c.owner = tbl.owner AND c.table_name = tbl.table_name
+WHERE c.owner      = :owner
+  AND c.table_name = :table_name
+ORDER BY c.column_id
+)";
+}
+
+string OracleTableSet::GetDbaConstraintsQuery() {
+	return R"(
+SELECT cc.table_name, cc.constraint_name, con.constraint_type,
+       cc.column_name, cc.position
+FROM dba_cons_columns cc
+JOIN dba_constraints con
+  ON cc.owner           = con.owner
+ AND cc.constraint_name = con.constraint_name
+ AND cc.table_name      = con.table_name
+WHERE cc.owner      = :owner
+  AND cc.table_name = :table_name
+  AND con.constraint_type IN ('P','U')
+ORDER BY cc.table_name, cc.constraint_name, cc.position
+)";
+}
+
+string OracleTableSet::GetDbaTableNamesQuery() {
+	return R"(
+SELECT table_name FROM dba_tables WHERE owner = :owner
+UNION ALL
+SELECT view_name  FROM dba_views  WHERE owner = :owner
+ORDER BY 1
+)";
+}
+
+// ---------------------------------------------------------------------------
+// Privilege-level helper
+// ---------------------------------------------------------------------------
+
+// Returns the effective privilege level for this schema:
+//   DBA  → DBA_* views always
+//   USER → USER_* views always (own schema only)
+//   ALL  → USER_* for the current user's own schema (faster), ALL_* otherwise
+static OraclePrivilegeLevel GetEffectiveLevel(const OracleSchemaEntry &schema) {
+	auto level = schema.ParentCatalog().Cast<OracleCatalog>().GetPrivilegeLevel();
+	if (level == OraclePrivilegeLevel::ALL && schema.IsCurrentUserSchema()) {
+		return OraclePrivilegeLevel::USER;
+	}
+	return level;
+}
+
+// ---------------------------------------------------------------------------
 // Row parsing helpers
 // ---------------------------------------------------------------------------
 
@@ -151,12 +210,23 @@ void OracleTableSet::AddColumn(OracleResult &result, idx_t row,
 // ---------------------------------------------------------------------------
 
 void OracleTableSet::LoadEntries(ClientContext &context, OracleTransaction &transaction) {
-	bool is_current_user = schema.IsCurrentUserSchema();
+	auto level = GetEffectiveLevel(schema);
 
-	const string query = is_current_user ? GetUserTableNamesQuery() : GetTableNamesQuery();
-	const unordered_map<string, string> binds =
-	    is_current_user ? unordered_map<string, string>{}
-	                    : unordered_map<string, string>{{"owner", StringUtil::Upper(schema.oracle_name)}};
+	string query;
+	unordered_map<string, string> binds;
+	switch (level) {
+	case OraclePrivilegeLevel::USER:
+		query = GetUserTableNamesQuery();
+		break;
+	case OraclePrivilegeLevel::DBA:
+		query = GetDbaTableNamesQuery();
+		binds = {{"owner", StringUtil::Upper(schema.oracle_name)}};
+		break;
+	default: // ALL
+		query = GetTableNamesQuery();
+		binds = {{"owner", StringUtil::Upper(schema.oracle_name)}};
+		break;
+	}
 
 	auto result = transaction.Query(query, binds);
 	if (!result || result->Count() == 0) {
@@ -182,24 +252,36 @@ void OracleTableSet::LoadEntries(ClientContext &context, OracleTransaction &tran
 unique_ptr<OracleTableInfo> OracleTableSet::GetTableInfo(OracleTransaction &transaction,
                                                           OracleSchemaEntry &schema,
                                                           const string &table_name) {
-	bool is_current_user = schema.IsCurrentUserSchema();
+	auto level = GetEffectiveLevel(schema);
 
-	unordered_map<string, string> binds = {
+	const unordered_map<string, string> owner_binds = {
 	    {"owner",      StringUtil::Upper(schema.oracle_name)},
 	    {"table_name", StringUtil::Upper(table_name)}};
-
-	// USER_* views skip privilege checks — much faster for the connected user's own schema.
-	const string cols_query = is_current_user ? GetUserColumnsQuery() : GetColumnsQuery();
-	const string cons_query = is_current_user ? GetUserConstraintsQuery() : GetConstraintsQuery();
-	// USER_* queries only need :table_name; ALL_* queries also need :owner.
 	const unordered_map<string, string> user_binds = {{"table_name", StringUtil::Upper(table_name)}};
-	const unordered_map<string, string> &query_binds = is_current_user ? user_binds : binds;
 
-	auto col_result = transaction.Query(cols_query, query_binds);
+	string cols_query, cons_query;
+	const unordered_map<string, string> *query_binds = &owner_binds;
+	switch (level) {
+	case OraclePrivilegeLevel::USER:
+		cols_query  = GetUserColumnsQuery();
+		cons_query  = GetUserConstraintsQuery();
+		query_binds = &user_binds;
+		break;
+	case OraclePrivilegeLevel::DBA:
+		cols_query = GetDbaColumnsQuery();
+		cons_query = GetDbaConstraintsQuery();
+		break;
+	default: // ALL
+		cols_query = GetColumnsQuery();
+		cons_query = GetConstraintsQuery();
+		break;
+	}
+
+	auto col_result = transaction.Query(cols_query, *query_binds);
 	if (!col_result || col_result->Count() == 0) {
 		return nullptr;
 	}
-	auto con_result = transaction.Query(cons_query, query_binds);
+	auto con_result = transaction.Query(cons_query, *query_binds);
 
 	auto table_info = make_uniq<OracleTableInfo>(schema, table_name);
 	idx_t col_rows = col_result->Count();

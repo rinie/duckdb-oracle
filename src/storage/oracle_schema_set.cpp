@@ -17,22 +17,30 @@ OracleSchemaSet::OracleSchemaSet(OracleCatalog &catalog, const string &schema_to
 
 void OracleSchemaSet::LoadEntries(ClientContext &context, OracleTransaction &transaction) {
 	const string &internal_sql = OracleSchemaEntry::InternalOwnersSQL();
+	auto level = catalog.GetPrivilegeLevel();
+
+	// Choose the base table/view names based on privilege level.
+	const char *tbl_view = (level == OraclePrivilegeLevel::DBA) ? "dba_tables" : "all_tables";
+	const char *vw_view  = (level == OraclePrivilegeLevel::DBA) ? "dba_views"  : "all_views";
 
 	string query;
 	if (!schema_to_load.empty()) {
 		// Load only the requested schema
 		query = StringUtil::Format(
-		    "SELECT DISTINCT owner FROM all_tables WHERE owner = %s "
-		    "UNION SELECT DISTINCT owner FROM all_views WHERE owner = %s",
-		    OracleUtils::WriteLiteral(StringUtil::Upper(schema_to_load)),
-		    OracleUtils::WriteLiteral(StringUtil::Upper(schema_to_load)));
+		    "SELECT DISTINCT owner FROM %s WHERE owner = %s "
+		    "UNION SELECT DISTINCT owner FROM %s WHERE owner = %s",
+		    tbl_view, OracleUtils::WriteLiteral(StringUtil::Upper(schema_to_load)),
+		    vw_view,  OracleUtils::WriteLiteral(StringUtil::Upper(schema_to_load)));
+	} else if (level == OraclePrivilegeLevel::USER) {
+		// USER level: only the current user's own schema — no query needed, just use SELECT USER
+		query = "SELECT USER FROM DUAL";
 	} else {
-		// Load all visible schemas/owners, filtering internal ones in SQL
+		// ALL or DBA: load all visible schemas/owners, filtering internal ones in SQL
 		query = StringUtil::Format(
-		    "SELECT DISTINCT owner FROM all_tables WHERE owner NOT IN (%s) "
-		    "UNION SELECT DISTINCT owner FROM all_views WHERE owner NOT IN (%s) "
+		    "SELECT DISTINCT owner FROM %s WHERE owner NOT IN (%s) "
+		    "UNION SELECT DISTINCT owner FROM %s WHERE owner NOT IN (%s) "
 		    "ORDER BY 1",
-		    internal_sql, internal_sql);
+		    tbl_view, internal_sql, vw_view, internal_sql);
 	}
 
 	auto result = transaction.Query(query);

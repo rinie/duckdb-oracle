@@ -21,6 +21,7 @@ static unique_ptr<Catalog> OracleAttach(optional_ptr<StorageExtensionInfo> stora
 	string secret_name;
 	string schema_to_load;
 	OracleIsolationLevel isolation_level = OracleIsolationLevel::READ_COMMITTED;
+	OraclePrivilegeLevel privilege_level = OraclePrivilegeLevel::ALL;
 
 	for (auto &entry : attach_options.options) {
 		auto lower_name = StringUtil::Lower(entry.first);
@@ -39,6 +40,19 @@ static unique_ptr<Catalog> OracleAttach(optional_ptr<StorageExtensionInfo> stora
 				    "Invalid isolation_level for Oracle: \"%s\" (use READ COMMITTED or SERIALIZABLE)",
 				    entry.second.ToString());
 			}
+		} else if (lower_name == "privilege_level") {
+			auto param = StringUtil::Lower(entry.second.ToString());
+			if (param == "user") {
+				privilege_level = OraclePrivilegeLevel::USER;
+			} else if (param == "all") {
+				privilege_level = OraclePrivilegeLevel::ALL;
+			} else if (param == "dba") {
+				privilege_level = OraclePrivilegeLevel::DBA;
+			} else {
+				throw InvalidInputException(
+				    "Invalid privilege_level for Oracle: \"%s\" (use USER, ALL, or DBA)",
+				    entry.second.ToString());
+			}
 		} else {
 			throw BinderException("Unrecognized option for Oracle attach: %s", entry.first);
 		}
@@ -48,7 +62,8 @@ static unique_ptr<Catalog> OracleAttach(optional_ptr<StorageExtensionInfo> stora
 	    OracleCatalog::GetConnectionString(context, attach_path, secret_name);
 	return make_uniq<OracleCatalog>(db, std::move(connection_string),
 	                                 std::move(attach_path), attach_options.access_mode,
-	                                 std::move(schema_to_load), isolation_level, context);
+	                                 std::move(schema_to_load), isolation_level,
+	                                 privilege_level, context);
 }
 
 static unique_ptr<TransactionManager>
