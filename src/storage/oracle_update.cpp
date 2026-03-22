@@ -42,7 +42,7 @@ SinkResultType OracleUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 		auto rowid = StringValue::Get(rowid_val);
 
 		string sql = "UPDATE " +
-		             OracleUtils::QuoteIdentifier(oracle_table.schema.name) + "." +
+		             OracleUtils::QuoteIdentifier(oracle_table.oracle_schema_name) + "." +
 		             OracleUtils::QuoteIdentifier(oracle_table.name) + " SET ";
 		for (idx_t c = 0; c < ncols; c++) {
 			if (c > 0) sql += ", ";
@@ -68,7 +68,7 @@ SinkFinalizeType OracleUpdate::Finalize(Pipeline &pipeline, Event &event,
 	return SinkFinalizeType::READY;
 }
 
-SourceResultType OracleUpdate::GetData(ExecutionContext &context, DataChunk &chunk,
+SourceResultType OracleUpdate::GetDataInternal(ExecutionContext &context, DataChunk &chunk,
                                                 OperatorSourceInput &input) const {
 	auto &gstate = sink_state->Cast<OracleUpdateGlobalState>();
 	chunk.SetCardinality(1);

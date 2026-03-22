@@ -55,7 +55,7 @@ string OracleInsertGlobalState::BuildInsertSQL(DataChunk &chunk) const {
 	// Build: INSERT ALL INTO t(c1,c2) VALUES(v1,v2) ... SELECT * FROM DUAL
 	// For small batches we use INSERT ALL; for simplicity use one row at a time
 	string base = "INSERT INTO " +
-	              OracleUtils::QuoteIdentifier(tbl.schema.name) + "." +
+	              OracleUtils::QuoteIdentifier(tbl.oracle_schema_name) + "." +
 	              OracleUtils::QuoteIdentifier(tbl.name) + "(";
 	for (idx_t c = 0; c < col_names.size(); c++) {
 		if (c > 0) base += ", ";
@@ -182,7 +182,7 @@ SinkFinalizeType OracleInsert::Finalize(Pipeline &pipeline, Event &event,
 // Source (return count)
 // ---------------------------------------------------------------------------
 
-SourceResultType OracleInsert::GetData(ExecutionContext &context, DataChunk &chunk,
+SourceResultType OracleInsert::GetDataInternal(ExecutionContext &context, DataChunk &chunk,
                                                 OperatorSourceInput &input) const {
 	auto &insert_gstate = sink_state->Cast<OracleInsertGlobalState>();
 	chunk.SetCardinality(1);

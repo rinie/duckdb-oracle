@@ -39,15 +39,20 @@ public:
 	void AlterTable(ClientContext &context, OracleTransaction &transaction,
 	                AlterTableInfo &info);
 
-	//! SQL to fetch column info for a specific owner+table (use :owner / :table_name bind params)
+	//! ALL_* queries: bind :owner and :table_name
 	static string GetColumnsQuery();
-	//! SQL to fetch constraint info for a specific owner+table (use :owner / :table_name bind params)
 	static string GetConstraintsQuery();
-
-	//! SQL to fetch column info for ALL tables in a schema (use :owner bind param only)
+	//! ALL_* queries: bind :owner only (schema-wide bulk load)
 	static string GetSchemaColumnsQuery();
-	//! SQL to fetch constraint info for ALL tables in a schema (use :owner bind param only)
 	static string GetSchemaConstraintsQuery();
+
+	//! USER_* variants (no :owner needed — implicitly the connected user)
+	//! Single-table: bind :table_name only
+	static string GetUserColumnsQuery();
+	static string GetUserConstraintsQuery();
+	//! USER_* schema-wide: no bind params needed
+	static string GetUserSchemaColumnsQuery();
+	static string GetUserSchemaConstraintsQuery();
 
 protected:
 	void LoadEntries(ClientContext &context, OracleTransaction &transaction) override;

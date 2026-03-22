@@ -18,7 +18,7 @@ namespace duckdb {
 OracleTableSet::OracleTableSet(OracleSchemaEntry &schema,
                                 unique_ptr<OracleResultSlice> tables,
                                 unique_ptr<OracleResultSlice> constraints)
-    : OracleInSchemaSet(schema, !tables),
+    : OracleInSchemaSet(schema, false), // always start unloaded; lazy stubs via LoadEntries
       table_result(std::move(tables)),
       constraint_result(std::move(constraints)) {
 }
@@ -28,29 +28,36 @@ OracleTableSet::OracleTableSet(OracleSchemaEntry &schema,
 // ---------------------------------------------------------------------------
 
 string OracleTableSet::GetColumnsQuery() {
-	// Returns: owner, table_name, num_rows, column_name, data_type,
-	//          data_length, data_precision, data_scale, nullable, column_id
-	// all_tab_columns covers both tables and views.
+	// Returns: owner(0), table_name(1), num_rows(2), column_name(3), data_type(4),
+	//          data_length(5), data_precision(6), data_scale(7), nullable(8),
+	//          table_type(9), column_id(10)
 	// Bind :owner and :table_name before executing.
 	return R"(
-SELECT c.owner, c.table_name, NVL(tbl.num_rows, 0) AS num_rows,
-       c.column_name, c.data_type, c.data_length, c.data_precision, c.data_scale,
-       c.nullable, c.column_id
+SELECT LOWER(c.owner), LOWER(c.table_name), NVL(t.num_rows, 0) AS num_rows,
+       LOWER(c.column_name), c.data_type, c.data_length, c.data_precision, c.data_scale,
+       c.nullable, 'BASE TABLE' AS table_type, c.column_id
 FROM all_tab_columns c
-LEFT JOIN all_tables tbl
-  ON c.owner = tbl.owner AND c.table_name = tbl.table_name
+JOIN all_tables t ON t.owner = c.owner AND t.table_name = c.table_name
 WHERE c.owner      = :owner
   AND c.table_name = :table_name
-ORDER BY c.column_id
+UNION ALL
+SELECT LOWER(c.owner), LOWER(c.table_name), 0 AS num_rows,
+       LOWER(c.column_name), c.data_type, c.data_length, c.data_precision, c.data_scale,
+       c.nullable, 'VIEW' AS table_type, c.column_id
+FROM all_tab_columns c
+JOIN all_views v ON v.owner = c.owner AND v.view_name = c.table_name
+WHERE c.owner      = :owner
+  AND c.table_name = :table_name
+ORDER BY 11
 )";
 }
 
 string OracleTableSet::GetConstraintsQuery() {
-	// Returns: table_name, constraint_name, constraint_type, column_name, position
+	// Returns: table_name(0), constraint_name(1), constraint_type(2), column_name(3), position(4)
 	// Bind :owner and :table_name before executing.
 	return R"(
-SELECT cc.table_name, cc.constraint_name, con.constraint_type,
-       cc.column_name, cc.position
+SELECT LOWER(cc.table_name), cc.constraint_name, con.constraint_type,
+       LOWER(cc.column_name), cc.position
 FROM all_cons_columns cc
 JOIN all_constraints con
   ON cc.owner           = con.owner
@@ -64,27 +71,32 @@ ORDER BY cc.table_name, cc.constraint_name, cc.position
 }
 
 string OracleTableSet::GetSchemaColumnsQuery() {
-	// Bulk load: column info for ALL tables+views in a schema in one round-trip.
-	// all_tab_columns covers both tables and views; LEFT JOIN all_tables for num_rows.
+	// Bulk load: all tables+views in a schema (UNION ALL for VIEW tracking).
 	// Bind :owner before executing.
 	return R"(
-SELECT c.owner, c.table_name, NVL(tbl.num_rows, 0) AS num_rows,
-       c.column_name, c.data_type, c.data_length, c.data_precision, c.data_scale,
-       c.nullable, c.column_id
+SELECT LOWER(c.owner), LOWER(c.table_name), NVL(t.num_rows, 0) AS num_rows,
+       LOWER(c.column_name), c.data_type, c.data_length, c.data_precision, c.data_scale,
+       c.nullable, 'BASE TABLE' AS table_type, c.column_id
 FROM all_tab_columns c
-LEFT JOIN all_tables tbl
-  ON c.owner = tbl.owner AND c.table_name = tbl.table_name
+JOIN all_tables t ON t.owner = c.owner AND t.table_name = c.table_name
 WHERE c.owner = :owner
-ORDER BY c.table_name, c.column_id
+UNION ALL
+SELECT LOWER(c.owner), LOWER(c.table_name), 0 AS num_rows,
+       LOWER(c.column_name), c.data_type, c.data_length, c.data_precision, c.data_scale,
+       c.nullable, 'VIEW' AS table_type, c.column_id
+FROM all_tab_columns c
+JOIN all_views v ON v.owner = c.owner AND v.view_name = c.table_name
+WHERE c.owner = :owner
+ORDER BY 2, 11
 )";
 }
 
 string OracleTableSet::GetSchemaConstraintsQuery() {
-	// Bulk load: all PK/UK constraints for all tables in a schema in one round-trip.
+	// Bulk load: all PK/UK constraints for all tables in a schema.
 	// Bind :owner before executing.
 	return R"(
-SELECT cc.table_name, cc.constraint_name, con.constraint_type,
-       cc.column_name, cc.position
+SELECT LOWER(cc.table_name), cc.constraint_name, con.constraint_type,
+       LOWER(cc.column_name), cc.position
 FROM all_cons_columns cc
 JOIN all_constraints con
   ON cc.owner           = con.owner
@@ -97,19 +109,96 @@ ORDER BY cc.table_name, cc.constraint_name, cc.position
 }
 
 // ---------------------------------------------------------------------------
+// USER_* view variants (no privilege check, faster for the connected user)
+// ---------------------------------------------------------------------------
+
+string OracleTableSet::GetUserColumnsQuery() {
+	// Same column layout as GetColumnsQuery(). Bind :table_name only.
+	return R"(
+SELECT LOWER(USER) AS owner, LOWER(c.table_name), 0 AS num_rows,
+       LOWER(c.column_name), c.data_type, c.data_length, c.data_precision, c.data_scale,
+       c.nullable, 'BASE TABLE' AS table_type, c.column_id
+FROM user_tab_columns c
+JOIN user_tables t ON t.table_name = c.table_name
+WHERE c.table_name = :table_name
+UNION ALL
+SELECT LOWER(USER) AS owner, LOWER(c.table_name), 0 AS num_rows,
+       LOWER(c.column_name), c.data_type, c.data_length, c.data_precision, c.data_scale,
+       c.nullable, 'VIEW' AS table_type, c.column_id
+FROM user_tab_columns c
+JOIN user_views v ON v.view_name = c.table_name
+WHERE c.table_name = :table_name
+ORDER BY 11
+)";
+}
+
+string OracleTableSet::GetUserConstraintsQuery() {
+	// Bind :table_name only.
+	return R"(
+SELECT LOWER(cc.table_name), cc.constraint_name, con.constraint_type,
+       LOWER(cc.column_name), cc.position
+FROM user_cons_columns cc
+JOIN user_constraints con
+  ON cc.constraint_name = con.constraint_name
+ AND cc.table_name      = con.table_name
+WHERE cc.table_name = :table_name
+  AND con.constraint_type IN ('P','U')
+ORDER BY cc.table_name, cc.constraint_name, cc.position
+)";
+}
+
+string OracleTableSet::GetUserSchemaColumnsQuery() {
+	// No bind params needed — USER implicitly scopes to the connected user.
+	return R"(
+SELECT LOWER(USER) AS owner, LOWER(c.table_name), 0 AS num_rows,
+       LOWER(c.column_name), c.data_type, c.data_length, c.data_precision, c.data_scale,
+       c.nullable, 'BASE TABLE' AS table_type, c.column_id
+FROM user_tab_columns c
+JOIN user_tables t ON t.table_name = c.table_name
+UNION ALL
+SELECT LOWER(USER) AS owner, LOWER(c.table_name), 0 AS num_rows,
+       LOWER(c.column_name), c.data_type, c.data_length, c.data_precision, c.data_scale,
+       c.nullable, 'VIEW' AS table_type, c.column_id
+FROM user_tab_columns c
+JOIN user_views v ON v.view_name = c.table_name
+ORDER BY 2, 11
+)";
+}
+
+string OracleTableSet::GetUserSchemaConstraintsQuery() {
+	// No bind params needed.
+	return R"(
+SELECT LOWER(cc.table_name), cc.constraint_name, con.constraint_type,
+       LOWER(cc.column_name), cc.position
+FROM user_cons_columns cc
+JOIN user_constraints con
+  ON cc.constraint_name = con.constraint_name
+ AND cc.table_name      = con.table_name
+WHERE con.constraint_type IN ('P','U')
+ORDER BY cc.table_name, cc.constraint_name, cc.position
+)";
+}
+
+// ---------------------------------------------------------------------------
 // Row parsing helpers
 // ---------------------------------------------------------------------------
 
 void OracleTableSet::AddColumn(OracleResult &result, idx_t row,
                                 OracleTableInfo &table_info) {
-	// col indices: 0=owner,1=table_name,2=num_rows,3=col_name,4=data_type,
-	//              5=data_length,6=data_precision,7=data_scale,8=nullable,9=col_id
+	// col indices: 0=owner, 1=table_name, 2=num_rows, 3=col_name, 4=data_type,
+	//              5=data_length, 6=data_precision, 7=data_scale, 8=nullable,
+	//              9=table_type, 10=col_id
 	OracleTypeData type_info;
 	type_info.type_name = result.GetString(row, 4);
 	type_info.data_length = result.IsNull(row, 5) ? 0 : result.GetInt64(row, 5);
 	type_info.data_precision = result.IsNull(row, 6) ? -1 : result.GetInt64(row, 6);
 	type_info.data_scale = result.IsNull(row, 7) ? -127 : result.GetInt64(row, 7);
 	bool is_not_null = !result.IsNull(row, 8) && result.GetString(row, 8) == "N";
+
+	// col 9: table_type — mark the entry as a view when Oracle reports 'VIEW'
+	if (!result.IsNull(row, 9)) {
+		table_info.is_view = (result.GetString(row, 9) == "VIEW");
+	}
 
 	auto col_name = result.GetString(row, 3);
 
@@ -156,7 +245,6 @@ void OracleTableSet::CreateEntries(OracleTransaction &transaction,
 	}
 
 	// Process constraints
-	// Group by table_name + constraint_name, then add to matching table info
 	case_insensitive_map_t<case_insensitive_map_t<vector<string>>> pk_cols_by_table;
 	case_insensitive_map_t<case_insensitive_map_t<string>> con_type_by_table;
 
@@ -169,7 +257,7 @@ void OracleTableSet::CreateEntries(OracleTransaction &transaction,
 		con_type_by_table[table_name][constraint_name] = constraint_type;
 	}
 
-	// Apply constraints to matching table entries
+	// Apply constraints and register entries
 	for (auto &tbl_info : tables) {
 		auto &tname = tbl_info->GetTableName();
 		auto con_it = pk_cols_by_table.find(tname);
@@ -184,64 +272,102 @@ void OracleTableSet::CreateEntries(OracleTransaction &transaction,
 		auto table_entry = make_shared_ptr<OracleTableEntry>(
 		    static_cast<Catalog &>(catalog), static_cast<SchemaCatalogEntry &>(schema),
 		    *tbl_info);
+		if (tbl_info->is_view) {
+			table_entry->type = CatalogType::VIEW_ENTRY;
+		}
 		CreateEntryInternal(std::move(table_entry));
 	}
 }
 
 // ---------------------------------------------------------------------------
-// LoadEntries
+// LoadEntries — lazy: cheap names-only query, stubs upgraded on first access
 // ---------------------------------------------------------------------------
 
 void OracleTableSet::LoadEntries(ClientContext &context, OracleTransaction &transaction) {
-	// Bulk load: fetch all column and constraint info for the whole schema in two
-	// round-trips, then build fully-populated entries via CreateEntries.
-	// This avoids N per-table round-trips when the caller scans all tables.
+	// Discard any pre-loaded slices — lazy loading supersedes that path.
 	table_result.reset();
 	constraint_result.reset();
 
-	unordered_map<string, string> binds = {{"owner", StringUtil::Upper(schema.name)}};
+	bool is_current_user = schema.IsCurrentUserSchema();
 
-	auto col_result = transaction.Query(GetSchemaColumnsQuery(), binds);
-	if (!col_result || col_result->Count() == 0) {
+	string q;
+	unordered_map<string, string> binds;
+
+	if (is_current_user) {
+		// USER_* views skip privilege checks — much faster for the connected user's schema.
+		q = "SELECT LOWER(table_name), 'BASE TABLE' FROM user_tables "
+		    "UNION ALL SELECT LOWER(view_name), 'VIEW' FROM user_views "
+		    "ORDER BY 1";
+	} else {
+		binds = {{"owner", StringUtil::Upper(schema.oracle_name)}};
+		q = "SELECT LOWER(table_name), 'BASE TABLE' FROM all_tables WHERE owner = :owner "
+		    "UNION ALL SELECT LOWER(view_name), 'VIEW' FROM all_views WHERE owner = :owner "
+		    "ORDER BY 1";
+	}
+
+	auto result = transaction.Query(q, binds);
+	if (!result) {
 		return;
 	}
 
-	// Constraints are optional — views have none, so an empty result is fine.
-	auto con_result = transaction.Query(GetSchemaConstraintsQuery(), binds);
-	OracleResult empty_con;
-	auto &con_ref = con_result ? *con_result : empty_con;
+	for (idx_t row = 0; row < result->Count(); row++) {
+		auto table_name = result->GetString(row, 0);
+		bool is_view = (result->GetString(row, 1) == "VIEW");
 
-	CreateEntries(transaction, *col_result, con_ref,
-	              0, col_result->Count(),
-	              0, con_ref.Count());
+		// Stub entry: name + type only, no columns.
+		// GetEntry transparently upgrades the stub via ReloadEntry on first access.
+		auto table_info = make_uniq<OracleTableInfo>(schema, table_name);
+		table_info->is_view = is_view;
+		auto stub = make_shared_ptr<OracleTableEntry>(
+		    static_cast<Catalog &>(catalog),
+		    static_cast<SchemaCatalogEntry &>(schema),
+		    *table_info);
+		if (is_view) {
+			stub->type = CatalogType::VIEW_ENTRY;
+		}
+		entries[table_name] = std::move(stub);
+		MarkAsStub(table_name);
+	}
 }
 
 // ---------------------------------------------------------------------------
-// GetTableInfo - single table
+// GetTableInfo - single table (used by ReloadEntry and external scan path)
 // ---------------------------------------------------------------------------
 
 unique_ptr<OracleTableInfo> OracleTableSet::GetTableInfo(OracleTransaction &transaction,
                                                           OracleSchemaEntry &schema,
                                                           const string &table_name) {
-	unordered_map<string, string> binds = {
-	    {"owner",      StringUtil::Upper(schema.name)},
-	    {"table_name", StringUtil::Upper(table_name)}};
-	auto col_result = transaction.Query(GetColumnsQuery(), binds);
+	bool is_current_user = schema.IsCurrentUserSchema();
+
+	// ALL_* needs :owner + :table_name; USER_* needs only :table_name.
+	const string upper_table = StringUtil::Upper(table_name);
+	unordered_map<string, string> all_binds = {
+	    {"owner",      StringUtil::Upper(schema.oracle_name)},
+	    {"table_name", upper_table}};
+	unordered_map<string, string> user_binds = {{"table_name", upper_table}};
+
+	const string &cols_query = is_current_user ? GetUserColumnsQuery() : GetColumnsQuery();
+	const string &cons_query = is_current_user ? GetUserConstraintsQuery() : GetConstraintsQuery();
+	const auto &query_binds  = is_current_user ? user_binds : all_binds;
+
+	auto col_result = transaction.Query(cols_query, query_binds);
 	if (!col_result || col_result->Count() == 0) {
 		return nullptr;
 	}
-	auto con_result = transaction.Query(GetConstraintsQuery(), binds);
+	auto con_result = transaction.Query(cons_query, query_binds);
 
 	auto table_info = make_uniq<OracleTableInfo>(schema, table_name);
 	idx_t col_rows = col_result->Count();
 	idx_t con_rows = con_result ? con_result->Count() : 0;
 
-	for (idx_t row = 0; row < col_rows; row++) {
-		AddColumn(*col_result, row, *table_info);
-	}
+	// Set num_rows from first row col 2
 	if (!col_result->IsNull(0, 2)) {
 		table_info->approx_num_rows = (idx_t)col_result->GetInt64(0, 2);
 	}
+	for (idx_t row = 0; row < col_rows; row++) {
+		AddColumn(*col_result, row, *table_info); // also sets is_view via col 9
+	}
+
 	// Add constraints
 	case_insensitive_map_t<vector<string>> pk_cols;
 	case_insensitive_map_t<string> con_types;
@@ -266,6 +392,7 @@ unique_ptr<OracleTableInfo> OracleTableSet::GetTableInfo(ClientContext &context,
                                                           OracleConnection &connection,
                                                           const string &schema_name,
                                                           const string &table_name) {
+	// External path (e.g. oracle_scanner.cpp) — always uses ALL_* queries.
 	unordered_map<string, string> binds = {
 	    {"owner",      StringUtil::Upper(schema_name)},
 	    {"table_name", StringUtil::Upper(table_name)}};
@@ -276,11 +403,11 @@ unique_ptr<OracleTableInfo> OracleTableSet::GetTableInfo(ClientContext &context,
 	}
 	auto table_info = make_uniq<OracleTableInfo>(schema_name, table_name);
 	idx_t col_rows = col_result->Count();
-	for (idx_t row = 0; row < col_rows; row++) {
-		AddColumn(*col_result, row, *table_info);
-	}
 	if (!col_result->IsNull(0, 2)) {
 		table_info->approx_num_rows = (idx_t)col_result->GetInt64(0, 2);
+	}
+	for (idx_t row = 0; row < col_rows; row++) {
+		AddColumn(*col_result, row, *table_info);
 	}
 	return table_info;
 }
@@ -298,6 +425,9 @@ optional_ptr<CatalogEntry> OracleTableSet::ReloadEntry(OracleTransaction &transa
 	auto table_entry = make_shared_ptr<OracleTableEntry>(
 	    static_cast<Catalog &>(catalog), static_cast<SchemaCatalogEntry &>(schema),
 	    *table_info);
+	if (table_info->is_view) {
+		table_entry->type = CatalogType::VIEW_ENTRY;
+	}
 	return CreateEntryInternal(std::move(table_entry));
 }
 
@@ -306,13 +436,8 @@ optional_ptr<CatalogEntry> OracleTableSet::ReloadEntry(OracleTransaction &transa
 // ---------------------------------------------------------------------------
 
 static string GetOracleCreateTable(CreateTableInfo &info) {
-	// Convert column types to Oracle SQL types
 	std::stringstream ss;
 	ss << "CREATE TABLE ";
-	if (info.on_conflict == OnCreateConflict::IGNORE_ON_CONFLICT) {
-		// Oracle 23c+: IF NOT EXISTS; for older: check first
-		// For simplicity we just try and catch errors upstream
-	}
 	if (!info.schema.empty()) {
 		ss << OracleUtils::QuoteIdentifier(info.schema) << ".";
 	}
@@ -325,7 +450,6 @@ static string GetOracleCreateTable(CreateTableInfo &info) {
 		ss << OracleUtils::QuoteIdentifier(col.Name()) << " ";
 		ss << OracleUtils::TypeToString(col.GetType());
 	}
-	// Constraints
 	for (auto &constraint : info.constraints) {
 		if (constraint->type == ConstraintType::UNIQUE) {
 			auto &uc = constraint->Cast<UniqueConstraint>();
@@ -352,7 +476,6 @@ optional_ptr<CatalogEntry> OracleTableSet::CreateTable(OracleTransaction &transa
                                                          BoundCreateTableInfo &info) {
 	auto create_sql = GetOracleCreateTable(info.Base());
 	transaction.Query(create_sql);
-	// Oracle DDL auto-commits; no explicit COMMIT needed here
 	auto tbl_entry = make_shared_ptr<OracleTableEntry>(
 	    static_cast<Catalog &>(catalog), static_cast<SchemaCatalogEntry &>(schema),
 	    info.Base());
@@ -367,7 +490,7 @@ string OracleTableSet::GetAlterTablePrefix(ClientContext &context,
                                             OracleTransaction &transaction,
                                             const string &name) {
 	string sql = "ALTER TABLE ";
-	sql += OracleUtils::QuoteIdentifier(schema.name) + ".";
+	sql += OracleUtils::QuoteIdentifier(schema.oracle_name) + ".";
 	sql += OracleUtils::QuoteIdentifier(name);
 	return sql;
 }
@@ -375,7 +498,7 @@ string OracleTableSet::GetAlterTablePrefix(ClientContext &context,
 string OracleTableSet::GetAlterTablePrefix(const string &name,
                                             optional_ptr<CatalogEntry> entry) {
 	string sql = "ALTER TABLE ";
-	sql += OracleUtils::QuoteIdentifier(schema.name) + ".";
+	sql += OracleUtils::QuoteIdentifier(schema.oracle_name) + ".";
 	sql += OracleUtils::QuoteIdentifier(entry ? entry->name : name);
 	return sql;
 }

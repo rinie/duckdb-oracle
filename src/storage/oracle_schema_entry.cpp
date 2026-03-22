@@ -10,29 +10,54 @@
 namespace duckdb {
 
 OracleSchemaEntry::OracleSchemaEntry(Catalog &catalog, CreateSchemaInfo &info)
-    : SchemaCatalogEntry(catalog, info), tables(*this), indexes(*this), types(*this) {
+    : SchemaCatalogEntry(catalog, info), oracle_name(name), tables(*this), indexes(*this),
+      types(*this) {
 }
 
 OracleSchemaEntry::OracleSchemaEntry(Catalog &catalog, CreateSchemaInfo &info,
                                       unique_ptr<OracleResultSlice> tables,
                                       unique_ptr<OracleResultSlice> constraints,
                                       unique_ptr<OracleResultSlice> indexes)
-    : SchemaCatalogEntry(catalog, info),
+    : SchemaCatalogEntry(catalog, info), oracle_name(name),
       tables(*this, std::move(tables), std::move(constraints)),
       indexes(*this, std::move(indexes)), types(*this) {
 }
 
-bool OracleSchemaEntry::SchemaIsInternal(const string &name) {
-	// Oracle internal schemas to hide
-	static const vector<string> internal_schemas = {
+// Single source of truth for Oracle internal schema names.
+static const vector<string> &OracleInternalSchemaNames() {
+	static const vector<string> schemas = {
 	    "SYS", "SYSTEM", "OUTLN", "XDB", "MDSYS", "CTXSYS", "DBSNMP", "APPQOSSYS",
 	    "OJVMSYS", "GSMADMIN_INTERNAL", "ORDDATA", "ORDSYS", "SI_INFORMTN_SCHEMA"};
-	for (auto &s : internal_schemas) {
+	return schemas;
+}
+
+bool OracleSchemaEntry::SchemaIsInternal(const string &name) {
+	for (auto &s : OracleInternalSchemaNames()) {
 		if (StringUtil::CIEquals(name, s)) {
 			return true;
 		}
 	}
 	return false;
+}
+
+string OracleSchemaEntry::InternalOwnersSQL() {
+	// Build the SQL literal list once, e.g. "'SYS','SYSTEM',..."
+	static const string sql = []() {
+		string out;
+		for (auto &s : OracleInternalSchemaNames()) {
+			if (!out.empty()) {
+				out += ",";
+			}
+			out += "'" + s + "'";
+		}
+		return out;
+	}();
+	return sql;
+}
+
+bool OracleSchemaEntry::IsCurrentUserSchema() const {
+	return StringUtil::CIEquals(oracle_name,
+	                             ParentCatalog().Cast<OracleCatalog>().GetDefaultSchema());
 }
 
 OracleCatalogSet &OracleSchemaEntry::GetCatalogSet(CatalogType type) {
@@ -71,7 +96,7 @@ optional_ptr<CatalogEntry> OracleSchemaEntry::CreateIndex(CatalogTransaction tra
 		sql += "UNIQUE ";
 	}
 	sql += "INDEX " + OracleUtils::QuoteIdentifier(info.index_name) + " ON ";
-	sql += OracleUtils::QuoteIdentifier(this->name) + "." +
+	sql += OracleUtils::QuoteIdentifier(this->oracle_name) + "." +
 	       OracleUtils::QuoteIdentifier(info.table);
 	sql += "(";
 	for (idx_t i = 0; i < info.column_ids.size(); i++) {
@@ -166,11 +191,11 @@ void OracleSchemaEntry::TryDropEntry(ClientContext &context, CatalogType catalog
 	string sql;
 	switch (catalog_type) {
 	case CatalogType::TABLE_ENTRY:
-		sql = "DROP TABLE " + OracleUtils::QuoteIdentifier(this->name) + "." +
+		sql = "DROP TABLE " + OracleUtils::QuoteIdentifier(this->oracle_name) + "." +
 		      OracleUtils::QuoteIdentifier(name);
 		break;
 	case CatalogType::VIEW_ENTRY:
-		sql = "DROP VIEW " + OracleUtils::QuoteIdentifier(this->name) + "." +
+		sql = "DROP VIEW " + OracleUtils::QuoteIdentifier(this->oracle_name) + "." +
 		      OracleUtils::QuoteIdentifier(name);
 		break;
 	case CatalogType::INDEX_ENTRY:

@@ -55,7 +55,7 @@ SinkFinalizeType OracleDelete::Finalize(Pipeline &pipeline, Event &event,
 	if (!gstate.rowids.empty()) {
 		for (auto &rowid : gstate.rowids) {
 			string sql = "DELETE FROM " +
-			             OracleUtils::QuoteIdentifier(oracle_table.schema.name) + "." +
+			             OracleUtils::QuoteIdentifier(oracle_table.oracle_schema_name) + "." +
 			             OracleUtils::QuoteIdentifier(oracle_table.name) +
 			             " WHERE ROWID = " + OracleUtils::WriteLiteral(rowid);
 			connection.Execute(context, sql);
@@ -64,7 +64,7 @@ SinkFinalizeType OracleDelete::Finalize(Pipeline &pipeline, Event &event,
 	return SinkFinalizeType::READY;
 }
 
-SourceResultType OracleDelete::GetData(ExecutionContext &context, DataChunk &chunk,
+SourceResultType OracleDelete::GetDataInternal(ExecutionContext &context, DataChunk &chunk,
                                                 OperatorSourceInput &input) const {
 	auto &gstate = sink_state->Cast<OracleDeleteGlobalState>();
 	chunk.SetCardinality(1);

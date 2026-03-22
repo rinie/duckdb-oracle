@@ -19,6 +19,10 @@ protected:
 	void LoadEntries(ClientContext &context, OracleTransaction &transaction) override;
 
 private:
+	//! Populate index entries from a contiguous range [start, end) of a result set.
+	//! Shared by both the standard query path and any pre-loaded slice path.
+	void PopulateFromResult(OracleResult &result, idx_t start, idx_t end);
+
 	unique_ptr<OracleResultSlice> index_result;
 };
 

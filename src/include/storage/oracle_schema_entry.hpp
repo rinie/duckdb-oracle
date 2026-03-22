@@ -23,6 +23,10 @@ public:
 	                   unique_ptr<OracleResultSlice> constraints,
 	                   unique_ptr<OracleResultSlice> indexes);
 
+	//! The actual Oracle owner/schema name used in Oracle SQL (uppercase-safe).
+	//! Equals `name` for real schemas. Always use this in DDL/DML, never `name`.
+	string oracle_name;
+
 public:
 	optional_ptr<CatalogEntry> CreateTable(CatalogTransaction transaction,
 	                                        BoundCreateTableInfo &info) override;
@@ -55,6 +59,10 @@ public:
 	                                        const EntryLookupInfo &lookup_info) override;
 
 	static bool SchemaIsInternal(const string &name);
+	//! SQL literal list of internal owners for NOT IN (...) clauses, e.g. "'SYS','SYSTEM',..."
+	static string InternalOwnersSQL();
+	//! True when this schema's oracle_name matches the connected user (enables USER_* views)
+	bool IsCurrentUserSchema() const;
 
 private:
 	void TryDropEntry(ClientContext &context, CatalogType catalog_type, const string &name);

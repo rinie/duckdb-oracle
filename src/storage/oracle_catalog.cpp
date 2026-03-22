@@ -26,7 +26,7 @@ OracleCatalog::OracleCatalog(AttachedDatabase &db_p, string connection_string_p,
 		// Open a temp connection to get current user
 		try {
 			auto con = connection_pool.GetConnection();
-			auto result = con.GetConnection().Query(context, "SELECT USER FROM DUAL");
+			auto result = con.GetConnection().Query(context, "SELECT LOWER(USER) FROM DUAL");
 			if (result && result->Count() > 0) {
 				default_schema = result->GetString(0, 0);
 			}
@@ -34,7 +34,7 @@ OracleCatalog::OracleCatalog(AttachedDatabase &db_p, string connection_string_p,
 			// fallback
 		}
 	} else {
-		default_schema = StringUtil::Upper(schema_to_load);
+		default_schema = StringUtil::Lower(schema_to_load);
 	}
 
 	// Get Oracle version
@@ -139,12 +139,6 @@ optional_ptr<SchemaCatalogEntry> OracleCatalog::LookupSchema(
     CatalogTransaction transaction, const EntryLookupInfo &schema_lookup,
     OnEntryNotFound if_not_found) {
 	auto schema_name = schema_lookup.GetEntryName();
-	// DuckDB UI calls SET schema = '<catalog>.main' on attach.
-	// Oracle has no "main" schema/user, so redirect to the Oracle default schema
-	// (the connected user) so the UI can function normally.
-	if (StringUtil::CIEquals(schema_name, "main") && !default_schema.empty()) {
-		schema_name = default_schema;
-	}
 	auto &oracle_transaction = OracleTransaction::Get(transaction.GetContext(), *this);
 	auto entry = schemas.GetEntry(transaction.GetContext(), oracle_transaction, schema_name);
 	if (!entry && if_not_found != OnEntryNotFound::RETURN_NULL) {
