@@ -40,6 +40,12 @@ struct OracleType {
 
 enum class OracleIsolationLevel { READ_COMMITTED, SERIALIZABLE };
 
+//! Controls which Oracle data-dictionary view family is used for schema introspection.
+//!   USER  — USER_* views  : own schema only, no privilege checks, fastest (default)
+//!   ALL   — ALL_*  views  : all accessible objects
+//!   DBA   — DBA_*  views  : all DB objects, requires DBA role
+enum class OraclePrivilegeLevel { USER, ALL, DBA };
+
 struct OracleVersion {
 	int major_v = 0;
 	int minor_v = 0;

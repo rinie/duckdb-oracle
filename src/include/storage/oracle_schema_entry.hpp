@@ -18,13 +18,9 @@ class OracleTransaction;
 class OracleSchemaEntry : public SchemaCatalogEntry {
 public:
 	OracleSchemaEntry(Catalog &catalog, CreateSchemaInfo &info);
-	OracleSchemaEntry(Catalog &catalog, CreateSchemaInfo &info,
-	                   unique_ptr<OracleResultSlice> tables,
-	                   unique_ptr<OracleResultSlice> constraints,
-	                   unique_ptr<OracleResultSlice> indexes);
 
-	//! The actual Oracle owner/schema name used in Oracle SQL (uppercase-safe).
-	//! Equals `name` for real schemas. Always use this in DDL/DML, never `name`.
+	//! The actual Oracle schema (owner) name used in Oracle queries.
+	//! Equals `name` for real schemas; overridden to the default schema for the "main" alias.
 	string oracle_name;
 
 public:

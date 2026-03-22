@@ -33,14 +33,16 @@ OracleTableInfo::OracleTableInfo(const string &schema_name, const string &table_
 OracleTableEntry::OracleTableEntry(Catalog &catalog, SchemaCatalogEntry &schema,
                                     OracleTableInfo &info)
     : TableCatalogEntry(catalog, schema, *info.create_info),
-      oracle_schema_name(info.oracle_schema_name), is_view(info.is_view),
+      oracle_schema_name(schema.Cast<OracleSchemaEntry>().oracle_name),
+      is_view(info.is_view),
       oracle_names(info.oracle_names), oracle_types(info.oracle_types),
       approx_num_rows(info.approx_num_rows) {
 }
 
 OracleTableEntry::OracleTableEntry(Catalog &catalog, SchemaCatalogEntry &schema,
                                     CreateTableInfo &info)
-    : TableCatalogEntry(catalog, schema, info) {
+    : TableCatalogEntry(catalog, schema, info),
+      oracle_schema_name(schema.Cast<OracleSchemaEntry>().oracle_name) {
 }
 
 unique_ptr<BaseStatistics> OracleTableEntry::GetStatistics(ClientContext &context,

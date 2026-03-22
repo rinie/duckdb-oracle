@@ -23,6 +23,7 @@ public:
 	                        string attach_path, AccessMode access_mode,
 	                        string schema_to_load,
 	                        OracleIsolationLevel isolation_level,
+	                        OraclePrivilegeLevel privilege_level,
 	                        ClientContext &context);
 	~OracleCatalog();
 
@@ -30,6 +31,7 @@ public:
 	string attach_path;
 	AccessMode access_mode;
 	OracleIsolationLevel isolation_level;
+	OraclePrivilegeLevel privilege_level;
 
 public:
 	void Initialize(bool load_builtin) override;
@@ -77,6 +79,10 @@ public:
 
 	OracleVersion GetOracleVersion() const {
 		return version;
+	}
+
+	OraclePrivilegeLevel GetPrivilegeLevel() const {
+		return privilege_level;
 	}
 
 	static void MaterializeOracleScans(PhysicalOperator &op);

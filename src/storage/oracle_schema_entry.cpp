@@ -14,15 +14,6 @@ OracleSchemaEntry::OracleSchemaEntry(Catalog &catalog, CreateSchemaInfo &info)
       types(*this) {
 }
 
-OracleSchemaEntry::OracleSchemaEntry(Catalog &catalog, CreateSchemaInfo &info,
-                                      unique_ptr<OracleResultSlice> tables,
-                                      unique_ptr<OracleResultSlice> constraints,
-                                      unique_ptr<OracleResultSlice> indexes)
-    : SchemaCatalogEntry(catalog, info), oracle_name(name),
-      tables(*this, std::move(tables), std::move(constraints)),
-      indexes(*this, std::move(indexes)), types(*this) {
-}
-
 // Single source of truth for Oracle internal schema names.
 static const vector<string> &OracleInternalSchemaNames() {
 	static const vector<string> schemas = {
@@ -56,6 +47,9 @@ string OracleSchemaEntry::InternalOwnersSQL() {
 }
 
 bool OracleSchemaEntry::IsCurrentUserSchema() const {
+	// Use oracle_name (not name) so the "main" alias schema also benefits from
+	// USER_* views — oracle_name equals the connected user for both the real
+	// schema and the "main" alias that points at it.
 	return StringUtil::CIEquals(oracle_name,
 	                             ParentCatalog().Cast<OracleCatalog>().GetDefaultSchema());
 }
