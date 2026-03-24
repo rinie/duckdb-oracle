@@ -49,9 +49,6 @@ string OracleSchemaEntry::InternalOwnersSQL() {
 }
 
 bool OracleSchemaEntry::IsCurrentUserSchema() const {
-	// Use oracle_name (not name) so the "main" alias schema also benefits from
-	// USER_* views — oracle_name equals the connected user for both the real
-	// schema and the "main" alias that points at it.
 	return StringUtil::CIEquals(oracle_name,
 	                             ParentCatalog().Cast<OracleCatalog>().GetDefaultSchema());
 }

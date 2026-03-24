@@ -66,18 +66,7 @@ void OracleSchemaSet::LoadEntries(ClientContext &context, OracleTransaction &tra
 		entries[owner] = std::move(entry);
 	}
 
-	// Always register "main" as a DuckDB-visible alias for the default Oracle schema so
-	// that the DuckDB UI (which sets search_path = <catalog>.main on attach) finds a
-	// schema named "main" in ScanSchemas and can list its tables correctly.
-	const auto &ds = catalog.GetDefaultSchema();
-	if (!ds.empty() && !StringUtil::CIEquals(ds, "main")) {
-		CreateSchemaInfo main_info;
-		main_info.schema = "main";
-		main_info.on_conflict = OnCreateConflict::IGNORE_ON_CONFLICT;
-		auto main_entry = make_shared_ptr<OracleSchemaEntry>(catalog, main_info);
-		main_entry->oracle_name = ds;
-		entries["main"] = std::move(main_entry);
-	}
+
 }
 
 } // namespace duckdb
