@@ -11,6 +11,8 @@
 #include "storage/oracle_table_set.hpp"
 #include "storage/oracle_index_set.hpp"
 #include "storage/oracle_type_set.hpp"
+#include "storage/oracle_view_entry.hpp"
+#include <unordered_map>
 
 namespace duckdb {
 class OracleTransaction;
@@ -73,6 +75,13 @@ private:
 	OracleTableSet tables;
 	OracleIndexSet indexes;
 	OracleTypeSet types;
+	//! Heap-allocated VIEW_ENTRY stubs, keyed by view name.
+	//! DuckDBViewsInit stores reference<CatalogEntry> pointers into these during
+	//! Scan(VIEW_ENTRY, …) and reads them back later in DuckDBViewsFunction — so
+	//! the stubs must outlive the Scan call.  Stale entries for dropped views are
+	//! harmless: they are never returned because the underlying OracleTableSet no
+	//! longer contains them.
+	mutable std::unordered_map<std::string, unique_ptr<OracleViewEntry>> view_stub_cache_;
 };
 
 } // namespace duckdb

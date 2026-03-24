@@ -174,10 +174,18 @@ void OracleSchemaEntry::Scan(ClientContext &context, CatalogType type,
 		// ViewCatalogEntry.  OracleTableEntry (extends TableCatalogEntry) cannot
 		// be cast that way, so we synthesise a lightweight OracleViewEntry stub
 		// for each Oracle view and pass that to the callback instead.
+		//
+		// IMPORTANT: DuckDBViewsInit stores reference<CatalogEntry> values and
+		// reads them back in DuckDBViewsFunction after Scan() has returned, so
+		// the stubs must be heap-allocated and outlive this call.  We cache them
+		// in view_stub_cache_ (lifetime == schema entry lifetime).
 		tables.Scan(context, oracle_transaction, [&](CatalogEntry &entry) {
 			if (entry.Cast<OracleTableEntry>().is_view) {
-				OracleViewEntry view_entry(catalog, *this, entry.name);
-				callback(view_entry);
+				auto &stub = view_stub_cache_[entry.name];
+				if (!stub) {
+					stub = make_uniq<OracleViewEntry>(catalog, *this, entry.name);
+				}
+				callback(*stub);
 			}
 		});
 		return;
