@@ -126,11 +126,36 @@ Using `ROWID` is necessary — not just a convenience — because DuckDB evaluat
 
 ## Building from source
 
+This repository is an out-of-tree DuckDB extension: it has no submodules and cannot be configured on its own (`cmake -B build` inside this repo fails with `Unknown CMake command "build_loadable_extension"`). Build it through a DuckDB checkout instead, and pass this repo's `extension_config.cmake` to DuckDB's build.
+
+The DuckDB checkout **must match the version in [`duckdb_version`](duckdb_version)**, because extensions are built against DuckDB's unstable C++ API and only load into the exact DuckDB version they were built for.
+
+Linux / macOS:
+
 ```bash
-git clone --recurse-submodules https://github.com/rinie/duckdb-oracle
-cd duckdb-oracle
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
+git clone --depth 1 --branch v1.5.6 https://github.com/duckdb/duckdb
+git clone --depth 1 https://github.com/rinie/duckdb-oracle
+
+cmake -S duckdb -B build -DCMAKE_BUILD_TYPE=Release \
+  -DDUCKDB_EXTENSION_CONFIGS="$PWD/duckdb-oracle/extension_config.cmake" \
+  -DBUILD_COMPLETE_EXTENSION_SET=OFF -DBUILD_UNITTESTS=OFF
+cmake --build build --config Release --target oracle_loadable_extension
 ```
 
-The compiled extension is at `build/release/oracle.duckdb_extension`.
+Windows (Visual Studio 2022, from a Developer Command Prompt):
+
+```bat
+git clone --depth 1 --branch v1.5.6 https://github.com/duckdb/duckdb
+git clone --depth 1 https://github.com/rinie/duckdb-oracle
+
+cmake -S duckdb -B build -G "Visual Studio 17 2022" -A x64 ^
+  -DDUCKDB_EXTENSION_CONFIGS=%CD%\duckdb-oracle\extension_config.cmake ^
+  -DBUILD_COMPLETE_EXTENSION_SET=OFF -DBUILD_UNITTESTS=OFF
+cmake --build build --config Release --target oracle_loadable_extension
+```
+
+The compiled extension is at `build/extension/oracle/oracle.duckdb_extension`. Add `-DBUILD_SHELL=ON` and build the `shell` target if you also want a `duckdb` CLI to test it with (`LOAD '<path>/oracle.duckdb_extension';`, started with `duckdb -unsigned`).
+
+ODPI-C is downloaded automatically by CMake. The Oracle client libraries are only needed at runtime, not to build.
+
+> The Linux/macOS commands follow the same CMake flow as the Windows build but have not been verified on those platforms yet; please open an issue if they fail.
