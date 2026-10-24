@@ -44,11 +44,11 @@ SinkResultType OracleUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 
 		string sql = "UPDATE " +
 		             OracleUtils::QuoteIdentifier(oracle_table.oracle_schema_name) + "." +
-		             OracleUtils::QuoteIdentifier(oracle_table.name) + " SET ";
+		             OracleUtils::QuoteIdentifier(oracle_table.name.GetIdentifierName()) + " SET ";
 		for (idx_t c = 0; c < ncols; c++) {
 			if (c > 0) sql += ", ";
 			auto &col = oracle_table.GetColumns().GetColumn(columns[c]);
-			sql += OracleUtils::QuoteIdentifier(col.Name()) + " = ";
+			sql += OracleUtils::QuoteIdentifier(col.Name().GetIdentifierName()) + " = ";
 			auto val = chunk.GetValue(c, row);
 			sql += OracleUtils::ValueToOracleSQL(val);
 		}
@@ -79,7 +79,7 @@ string OracleUpdate::GetName() const {
 
 InsertionOrderPreservingMap<string> OracleUpdate::ParamsToString() const {
 	InsertionOrderPreservingMap<string> result;
-	result["Table Name"] = table.name;
+	result["Table Name"] = table.name.GetIdentifierName();
 	return result;
 }
 

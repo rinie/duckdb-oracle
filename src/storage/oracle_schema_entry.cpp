@@ -49,8 +49,8 @@ string OracleSchemaEntry::InternalOwnersSQL() {
 }
 
 bool OracleSchemaEntry::IsCurrentUserSchema() const {
-	return StringUtil::CIEquals(oracle_name,
-	                             ParentCatalog().Cast<OracleCatalog>().GetDefaultSchema());
+	auto default_schema = ParentCatalog().Cast<OracleCatalog>().GetDefaultSchema();
+	return default_schema && StringUtil::CIEquals(oracle_name, default_schema->GetIdentifierName());
 }
 
 OracleCatalogSet &OracleSchemaEntry::GetCatalogSet(CatalogType type) {
@@ -88,14 +88,14 @@ optional_ptr<CatalogEntry> OracleSchemaEntry::CreateIndex(CatalogTransaction tra
 	if (info.constraint_type == IndexConstraintType::UNIQUE) {
 		sql += "UNIQUE ";
 	}
-	sql += "INDEX " + OracleUtils::QuoteIdentifier(info.index_name) + " ON ";
+	sql += "INDEX " + OracleUtils::QuoteIdentifier(info.GetIndexName().GetIdentifierName()) + " ON ";
 	sql += OracleUtils::QuoteIdentifier(this->oracle_name) + "." +
-	       OracleUtils::QuoteIdentifier(info.table);
+	       OracleUtils::QuoteIdentifier(info.table.GetIdentifierName());
 	sql += "(";
 	for (idx_t i = 0; i < info.column_ids.size(); i++) {
 		if (i > 0) sql += ", ";
 		sql += OracleUtils::QuoteIdentifier(
-		    table.GetColumn(LogicalIndex(info.column_ids[i])).Name());
+		    table.GetColumn(LogicalIndex(info.column_ids[i])).Name().GetIdentifierName());
 	}
 	sql += ")";
 	oracle_transaction.Query(sql);
@@ -178,9 +178,9 @@ void OracleSchemaEntry::Scan(ClientContext &context, CatalogType type,
 		// in view_stub_cache_ (lifetime == schema entry lifetime).
 		tables.Scan(context, oracle_transaction, [&](CatalogEntry &entry) {
 			if (entry.Cast<OracleTableEntry>().is_view) {
-				auto &stub = view_stub_cache_[entry.name];
+				auto &stub = view_stub_cache_[entry.name.GetIdentifierName()];
 				if (!stub) {
-					stub = make_uniq<OracleViewEntry>(catalog, *this, entry.name);
+					stub = make_uniq<OracleViewEntry>(catalog, *this, entry.name.GetIdentifierName());
 				}
 				callback(*stub);
 			}
@@ -207,7 +207,7 @@ void OracleSchemaEntry::Scan(CatalogType type,
 }
 
 void OracleSchemaEntry::DropEntry(ClientContext &context, DropInfo &info) {
-	TryDropEntry(context, info.type, info.name);
+	TryDropEntry(context, info.type, info.GetQualifiedName().Name().GetIdentifierName());
 }
 
 void OracleSchemaEntry::TryDropEntry(ClientContext &context, CatalogType catalog_type,
@@ -234,7 +234,7 @@ void OracleSchemaEntry::TryDropEntry(ClientContext &context, CatalogType catalog
 	auto &cat_set = GetCatalogSet(catalog_type);
 	DropInfo drop_info;
 	drop_info.type = catalog_type;
-	drop_info.name = name;
+	drop_info.SetName(Identifier(name));
 	drop_info.if_not_found = OnEntryNotFound::RETURN_NULL;
 	cat_set.DropEntry(oracle_transaction, drop_info);
 }

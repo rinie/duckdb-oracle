@@ -56,7 +56,7 @@ string OracleInsertGlobalState::BuildInsertSQL(DataChunk &chunk) const {
 	// For small batches we use INSERT ALL; for simplicity use one row at a time
 	string base = "INSERT INTO " +
 	              OracleUtils::QuoteIdentifier(tbl.oracle_schema_name) + "." +
-	              OracleUtils::QuoteIdentifier(tbl.name) + "(";
+	              OracleUtils::QuoteIdentifier(tbl.name.GetIdentifierName()) + "(";
 	for (idx_t c = 0; c < col_names.size(); c++) {
 		if (c > 0) base += ", ";
 		base += OracleUtils::QuoteIdentifier(col_names[c]);
@@ -91,13 +91,13 @@ unique_ptr<GlobalSinkState> OracleInsert::GetGlobalSinkState(ClientContext &cont
 		for (auto &idx : col_indexes) {
 			if (idx.index != DConstants::INVALID_INDEX) {
 				result->insert_column_names.push_back(
-				    columns.GetColumn(idx).GetName());
+				    columns.GetColumn(idx).GetName().GetIdentifierName());
 			}
 		}
 	} else {
 		// All columns
 		for (auto &col : columns.Logical()) {
-			result->insert_column_names.push_back(col.GetName());
+			result->insert_column_names.push_back(col.GetName().GetIdentifierName());
 		}
 	}
 	return std::move(result);
@@ -200,7 +200,7 @@ string OracleInsert::GetName() const {
 
 InsertionOrderPreservingMap<string> OracleInsert::ParamsToString() const {
 	InsertionOrderPreservingMap<string> result;
-	result["Table Name"] = table ? table->name : info->Base().table;
+	result["Table Name"] = table ? table->name.GetIdentifierName() : info->Base().GetTableName().GetIdentifierName();
 	return result;
 }
 

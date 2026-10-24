@@ -222,7 +222,7 @@ void OracleTableSet::AddColumn(OracleResult &result, idx_t row,
 	table_info.oracle_types.push_back(std::move(oracle_type));
 	table_info.oracle_names.push_back(col_name);
 
-	ColumnDefinition column(col_name, std::move(column_type));
+	ColumnDefinition column(Identifier(col_name), std::move(column_type));
 	auto &create_info = *table_info.create_info;
 	if (is_not_null) {
 		create_info.constraints.push_back(make_uniq<NotNullConstraint>(
@@ -341,8 +341,12 @@ unique_ptr<OracleTableInfo> OracleTableSet::GetTableInfo(OracleTransaction &tran
 	}
 	for (auto &entry : pk_cols) {
 		bool is_pk = (con_types[entry.first] == "P");
+		vector<Identifier> constraint_columns;
+		for (auto &column_name : entry.second) {
+			constraint_columns.push_back(Identifier(column_name));
+		}
 		table_info->create_info->constraints.push_back(
-		    make_uniq<UniqueConstraint>(vector<string>(entry.second), is_pk));
+		    make_uniq<UniqueConstraint>(std::move(constraint_columns), is_pk));
 	}
 	return table_info;
 }
@@ -395,16 +399,16 @@ optional_ptr<CatalogEntry> OracleTableSet::ReloadEntry(OracleTransaction &transa
 static string GetOracleCreateTable(CreateTableInfo &info) {
 	std::stringstream ss;
 	ss << "CREATE TABLE ";
-	if (!info.schema.empty()) {
-		ss << OracleUtils::QuoteIdentifier(info.schema) << ".";
+	if (!info.GetQualifiedName().Schema().empty()) {
+		ss << OracleUtils::QuoteIdentifier(info.GetQualifiedName().Schema().GetIdentifierName()) << ".";
 	}
-	ss << OracleUtils::QuoteIdentifier(info.table) << " (";
+	ss << OracleUtils::QuoteIdentifier(info.GetTableName().GetIdentifierName()) << " (";
 
 	bool first = true;
 	for (auto &col : info.columns.Logical()) {
 		if (!first) ss << ", ";
 		first = false;
-		ss << OracleUtils::QuoteIdentifier(col.Name()) << " ";
+		ss << OracleUtils::QuoteIdentifier(col.Name().GetIdentifierName()) << " ";
 		ss << OracleUtils::TypeToString(col.GetType());
 	}
 	for (auto &constraint : info.constraints) {
@@ -419,7 +423,7 @@ static string GetOracleCreateTable(CreateTableInfo &info) {
 				}
 				for (idx_t i = 0; i < uc.columns.size(); i++) {
 					if (i > 0) ss << ", ";
-					ss << OracleUtils::QuoteIdentifier(uc.columns[i]);
+					ss << OracleUtils::QuoteIdentifier(uc.columns[i].GetIdentifierName());
 				}
 				ss << ")";
 			}
@@ -456,37 +460,40 @@ string OracleTableSet::GetAlterTablePrefix(const string &name,
                                             optional_ptr<CatalogEntry> entry) {
 	string sql = "ALTER TABLE ";
 	sql += OracleUtils::QuoteIdentifier(schema.oracle_name) + ".";
-	sql += OracleUtils::QuoteIdentifier(entry ? entry->name : name);
+	sql += OracleUtils::QuoteIdentifier(entry ? entry->name.GetIdentifierName() : name);
 	return sql;
 }
 
 void OracleTableSet::AlterTable(ClientContext &context, OracleTransaction &transaction,
                                   RenameTableInfo &info) {
-	string sql = "RENAME " + OracleUtils::QuoteIdentifier(info.name) + " TO " +
-	             OracleUtils::QuoteIdentifier(info.new_table_name);
+	string sql = "RENAME " + OracleUtils::QuoteIdentifier(info.GetQualifiedName().Name().GetIdentifierName()) + " TO " +
+	             OracleUtils::QuoteIdentifier(info.new_table_name.GetIdentifierName());
 	transaction.Query(sql);
 }
 
 void OracleTableSet::AlterTable(ClientContext &context, OracleTransaction &transaction,
                                   RenameColumnInfo &info) {
-	string sql = GetAlterTablePrefix(context, transaction, info.name);
-	sql += " RENAME COLUMN " + OracleUtils::QuoteIdentifier(info.old_name) + " TO " +
-	       OracleUtils::QuoteIdentifier(info.new_name);
+	string sql = GetAlterTablePrefix(context, transaction,
+	                                    info.GetQualifiedName().Name().GetIdentifierName());
+	sql += " RENAME COLUMN " + OracleUtils::QuoteIdentifier(info.old_name.GetIdentifierName()) + " TO " +
+	       OracleUtils::QuoteIdentifier(info.new_name.GetIdentifierName());
 	transaction.Query(sql);
 }
 
 void OracleTableSet::AlterTable(ClientContext &context, OracleTransaction &transaction,
                                   AddColumnInfo &info) {
-	string sql = GetAlterTablePrefix(context, transaction, info.name);
-	sql += " ADD " + OracleUtils::QuoteIdentifier(info.new_column.Name()) + " " +
+	string sql = GetAlterTablePrefix(context, transaction,
+	                                    info.GetQualifiedName().Name().GetIdentifierName());
+	sql += " ADD " + OracleUtils::QuoteIdentifier(info.new_column.Name().GetIdentifierName()) + " " +
 	       OracleUtils::TypeToString(info.new_column.Type());
 	transaction.Query(sql);
 }
 
 void OracleTableSet::AlterTable(ClientContext &context, OracleTransaction &transaction,
                                   RemoveColumnInfo &info) {
-	string sql = GetAlterTablePrefix(context, transaction, info.name);
-	sql += " DROP COLUMN " + OracleUtils::QuoteIdentifier(info.removed_column);
+	string sql = GetAlterTablePrefix(context, transaction,
+	                                    info.GetQualifiedName().Name().GetIdentifierName());
+	sql += " DROP COLUMN " + OracleUtils::QuoteIdentifier(info.removed_column.GetIdentifierName());
 	transaction.Query(sql);
 }
 

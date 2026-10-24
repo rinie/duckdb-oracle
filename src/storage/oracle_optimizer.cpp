@@ -28,7 +28,7 @@ static void OptimizeOracleScanLimitPushdown(unique_ptr<LogicalOperator> &op) {
 		}
 
 		auto &get = child.get().Cast<LogicalGet>();
-		if (!OracleCatalog::IsOracleScan(get.function.name)) {
+		if (!OracleCatalog::IsOracleScan(get.function.GetName().GetIdentifierName())) {
 			OptimizeOracleScanLimitPushdown(op->children[0]);
 			return;
 		}
@@ -96,7 +96,7 @@ static void OptimizeOracleScanLimitPushdown(unique_ptr<LogicalOperator> &op) {
 static void GatherOracleScans(LogicalOperator &op, OracleOperators &result) {
 	if (op.type == LogicalOperatorType::LOGICAL_GET) {
 		auto &get = op.Cast<LogicalGet>();
-		if (!OracleCatalog::IsOracleScan(get.function.name)) {
+		if (!OracleCatalog::IsOracleScan(get.function.GetName().GetIdentifierName())) {
 			return;
 		}
 		auto &bind_data = get.bind_data->Cast<OracleBindData>();

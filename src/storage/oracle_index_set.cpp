@@ -25,8 +25,8 @@ void OracleIndexSet::PopulateFromResult(OracleResult &result, idx_t start, idx_t
 
 		if (index_map.find(idx_name) == index_map.end()) {
 			auto info = make_uniq<CreateIndexInfo>();
-			info->index_name = idx_name;
-			info->table = tbl_name;
+			info->SetIndexName(Identifier(idx_name));
+			info->table = Identifier(tbl_name);
 			info->constraint_type = (uniqueness == kOracleUnique)
 			                             ? IndexConstraintType::UNIQUE
 			                             : IndexConstraintType::NONE;
