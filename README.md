@@ -133,11 +133,12 @@ The DuckDB checkout **must match the version in [`duckdb_version`](duckdb_versio
 Linux / macOS:
 
 ```bash
-git clone --depth 1 --branch v1.5.6 https://github.com/duckdb/duckdb
+git clone --depth 1 --branch v2.0.0 https://github.com/duckdb/duckdb
 git clone --depth 1 https://github.com/rinie/duckdb-oracle
 
 cmake -S duckdb -B build -DCMAKE_BUILD_TYPE=Release \
   -DDUCKDB_EXTENSION_CONFIGS="$PWD/duckdb-oracle/extension_config.cmake" \
+  -DDUCKDB_EXPLICIT_VERSION=v2.0.0 \
   -DBUILD_COMPLETE_EXTENSION_SET=OFF -DBUILD_UNITTESTS=OFF
 cmake --build build --config Release --target oracle_loadable_extension
 ```
@@ -145,14 +146,17 @@ cmake --build build --config Release --target oracle_loadable_extension
 Windows (Visual Studio 2022, from a Developer Command Prompt):
 
 ```bat
-git clone --depth 1 --branch v1.5.6 https://github.com/duckdb/duckdb
+git clone --depth 1 --branch v2.0.0 https://github.com/duckdb/duckdb
 git clone --depth 1 https://github.com/rinie/duckdb-oracle
 
 cmake -S duckdb -B build -G "Visual Studio 17 2022" -A x64 ^
   -DDUCKDB_EXTENSION_CONFIGS=%CD%\duckdb-oracle\extension_config.cmake ^
+  -DDUCKDB_EXPLICIT_VERSION=v2.0.0 ^
   -DBUILD_COMPLETE_EXTENSION_SET=OFF -DBUILD_UNITTESTS=OFF
 cmake --build build --config Release --target oracle_loadable_extension
 ```
+
+Since DuckDB 2.0 the version is no longer derived from the git tag: without `-DDUCKDB_EXPLICIT_VERSION=<tag>` the build is stamped `v2.0.0-dev<N>`, and an official DuckDB release refuses to load the extension.
 
 The compiled extension is at `build/extension/oracle/oracle.duckdb_extension`. Add `-DBUILD_SHELL=ON` and build the `shell` target if you also want a `duckdb` CLI to test it with (`LOAD '<path>/oracle.duckdb_extension';`, started with `duckdb -unsigned`).
 

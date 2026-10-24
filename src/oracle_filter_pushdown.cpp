@@ -254,8 +254,9 @@ string OracleFilterPushdown::TransformFilters(const vector<column_t> &column_ids
 			if (IsInternalExpression(expr)) {
 				continue;
 			}
-			throw NotImplementedException("Unsupported filter pushdown, set ora_experimental_filter_pushdown=false "
-			                              "to disable pushdowns. Problematic filter: \"%s\"",
+			throw NotImplementedException("Unsupported filter pushdown: use oracle_scan instead of "
+			                              "oracle_scan_pushdown (or oracle_attach without filter_pushdown) to "
+			                              "disable pushdowns. Problematic filter: \"%s\"",
 			                              expr.ToString());
 		}
 		filter_parts.push_back(std::move(filter_text));
