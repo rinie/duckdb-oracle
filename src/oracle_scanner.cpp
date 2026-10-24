@@ -110,7 +110,7 @@ public:
 							if (dpiRowid_getStringValue(data->value.asRowid, &ptr, &len) == 0 && ptr) {
 								int64_t idx = (int64_t)rowid_registry_->size();
 								rowid_registry_->emplace_back(ptr, len);
-								FlatVector::GetData<int64_t>(out_col)[output_offset] = idx;
+								FlatVector::GetDataMutable<int64_t>(out_col)[output_offset] = idx;
 								continue;
 							}
 						}

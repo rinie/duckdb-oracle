@@ -81,7 +81,7 @@ static void OracleQueryScan(ClientContext &context, TableFunctionInput &data,
 				FlatVector::SetNull(col, count, true);
 			} else {
 				auto str = res.GetString(gstate.current_row, c);
-				FlatVector::GetData<string_t>(col)[count] = StringVector::AddString(col, str);
+				FlatVector::GetDataMutable<string_t>(col)[count] = StringVector::AddString(col, str);
 			}
 		}
 		gstate.current_row++;

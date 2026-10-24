@@ -58,7 +58,7 @@ void OracleConvertValue(Vector &col, idx_t out_row,
 			string s(data->value.asBytes.ptr, data->value.asBytes.length);
 			val = (s == "1" || s == "Y" || s == "y" || s == "TRUE" || s == "true");
 		}
-		FlatVector::GetData<bool>(col)[out_row] = val;
+		FlatVector::GetDataMutable<bool>(col)[out_row] = val;
 		break;
 	}
 	case LogicalTypeId::TINYINT: {
@@ -70,7 +70,7 @@ void OracleConvertValue(Vector &col, idx_t out_row,
 		} else if (native_type == DPI_NATIVE_TYPE_BYTES) {
 			val = (int8_t)atoi(string(data->value.asBytes.ptr, data->value.asBytes.length).c_str());
 		}
-		FlatVector::GetData<int8_t>(col)[out_row] = val;
+		FlatVector::GetDataMutable<int8_t>(col)[out_row] = val;
 		break;
 	}
 	case LogicalTypeId::SMALLINT: {
@@ -82,7 +82,7 @@ void OracleConvertValue(Vector &col, idx_t out_row,
 		} else if (native_type == DPI_NATIVE_TYPE_BYTES) {
 			val = (int16_t)atoi(string(data->value.asBytes.ptr, data->value.asBytes.length).c_str());
 		}
-		FlatVector::GetData<int16_t>(col)[out_row] = val;
+		FlatVector::GetDataMutable<int16_t>(col)[out_row] = val;
 		break;
 	}
 	case LogicalTypeId::INTEGER: {
@@ -94,7 +94,7 @@ void OracleConvertValue(Vector &col, idx_t out_row,
 		} else if (native_type == DPI_NATIVE_TYPE_BYTES) {
 			val = (int32_t)atoi(string(data->value.asBytes.ptr, data->value.asBytes.length).c_str());
 		}
-		FlatVector::GetData<int32_t>(col)[out_row] = val;
+		FlatVector::GetDataMutable<int32_t>(col)[out_row] = val;
 		break;
 	}
 	case LogicalTypeId::BIGINT: {
@@ -106,7 +106,7 @@ void OracleConvertValue(Vector &col, idx_t out_row,
 		} else if (native_type == DPI_NATIVE_TYPE_BYTES) {
 			val = (int64_t)atoll(string(data->value.asBytes.ptr, data->value.asBytes.length).c_str());
 		}
-		FlatVector::GetData<int64_t>(col)[out_row] = val;
+		FlatVector::GetDataMutable<int64_t>(col)[out_row] = val;
 		break;
 	}
 	case LogicalTypeId::FLOAT: {
@@ -118,7 +118,7 @@ void OracleConvertValue(Vector &col, idx_t out_row,
 		} else if (native_type == DPI_NATIVE_TYPE_BYTES) {
 			val = (float)atof(string(data->value.asBytes.ptr, data->value.asBytes.length).c_str());
 		}
-		FlatVector::GetData<float>(col)[out_row] = val;
+		FlatVector::GetDataMutable<float>(col)[out_row] = val;
 		break;
 	}
 	case LogicalTypeId::DOUBLE: {
@@ -132,7 +132,7 @@ void OracleConvertValue(Vector &col, idx_t out_row,
 		} else if (native_type == DPI_NATIVE_TYPE_BYTES) {
 			val = atof(string(data->value.asBytes.ptr, data->value.asBytes.length).c_str());
 		}
-		FlatVector::GetData<double>(col)[out_row] = val;
+		FlatVector::GetDataMutable<double>(col)[out_row] = val;
 		break;
 	}
 	case LogicalTypeId::DECIMAL: {
@@ -153,13 +153,13 @@ void OracleConvertValue(Vector &col, idx_t out_row,
 		}
 		int64_t int_val = (int64_t)(dval * multiplier + (dval >= 0 ? 0.5 : -0.5));
 		if (width <= Decimal::MAX_WIDTH_INT16) {
-			FlatVector::GetData<int16_t>(col)[out_row] = (int16_t)int_val;
+			FlatVector::GetDataMutable<int16_t>(col)[out_row] = (int16_t)int_val;
 		} else if (width <= Decimal::MAX_WIDTH_INT32) {
-			FlatVector::GetData<int32_t>(col)[out_row] = (int32_t)int_val;
+			FlatVector::GetDataMutable<int32_t>(col)[out_row] = (int32_t)int_val;
 		} else if (width <= Decimal::MAX_WIDTH_INT64) {
-			FlatVector::GetData<int64_t>(col)[out_row] = int_val;
+			FlatVector::GetDataMutable<int64_t>(col)[out_row] = int_val;
 		} else {
-			FlatVector::GetData<hugeint_t>(col)[out_row] = Hugeint::Convert(int_val);
+			FlatVector::GetDataMutable<hugeint_t>(col)[out_row] = Hugeint::Convert(int_val);
 		}
 		break;
 	}
@@ -190,7 +190,7 @@ void OracleConvertValue(Vector &col, idx_t out_row,
 			snprintf(buf, sizeof(buf), "%d-%d", ivl.years, ivl.months);
 			str_val = buf;
 		}
-		FlatVector::GetData<string_t>(col)[out_row] =
+		FlatVector::GetDataMutable<string_t>(col)[out_row] =
 		    StringVector::AddString(col, str_val);
 		break;
 	}
@@ -199,7 +199,7 @@ void OracleConvertValue(Vector &col, idx_t out_row,
 		if (native_type == DPI_NATIVE_TYPE_BYTES) {
 			blob_val = string(data->value.asBytes.ptr, data->value.asBytes.length);
 		}
-		FlatVector::GetData<string_t>(col)[out_row] =
+		FlatVector::GetDataMutable<string_t>(col)[out_row] =
 		    StringVector::AddStringOrBlob(col, blob_val);
 		break;
 	}
@@ -217,7 +217,7 @@ void OracleConvertValue(Vector &col, idx_t out_row,
 		} else {
 			d = Date::FromDate(1970, 1, 1);
 		}
-		FlatVector::GetData<date_t>(col)[out_row] = d;
+		FlatVector::GetDataMutable<date_t>(col)[out_row] = d;
 		break;
 	}
 	case LogicalTypeId::TIMESTAMP:
@@ -226,7 +226,7 @@ void OracleConvertValue(Vector &col, idx_t out_row,
 		if (native_type == DPI_NATIVE_TYPE_TIMESTAMP) {
 			if (target_id == LogicalTypeId::TIMESTAMP_TZ) {
 				auto tz = OdpiTimestampTZToTimestampTZ(data->value.asTimestamp);
-				FlatVector::GetData<timestamp_tz_t>(col)[out_row] = tz;
+				FlatVector::GetDataMutable<timestamp_tz_t>(col)[out_row] = tz;
 				return;
 			}
 			ts = OdpiTimestampToTimestamp(data->value.asTimestamp);
@@ -237,7 +237,7 @@ void OracleConvertValue(Vector &col, idx_t out_row,
 		} else {
 			ts = Timestamp::FromEpochMicroSeconds(0);
 		}
-		FlatVector::GetData<timestamp_t>(col)[out_row] = ts;
+		FlatVector::GetDataMutable<timestamp_t>(col)[out_row] = ts;
 		break;
 	}
 	case LogicalTypeId::INTERVAL: {
@@ -252,7 +252,7 @@ void OracleConvertValue(Vector &col, idx_t out_row,
 			auto &ym = data->value.asIntervalYM;
 			ivl.months = ym.years * 12 + ym.months;
 		}
-		FlatVector::GetData<interval_t>(col)[out_row] = ivl;
+		FlatVector::GetDataMutable<interval_t>(col)[out_row] = ivl;
 		break;
 	}
 	default:
