@@ -8,6 +8,12 @@
 #pragma once
 
 #include "duckdb/catalog/catalog.hpp"
+#include "duckdb/main/attached_database.hpp"
+#include "duckdb/main/client_context.hpp"
+#include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
+#include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
+#include "duckdb/execution/physical_plan_generator.hpp"
+#include "duckdb/planner/logical_operator.hpp"
 #include "duckdb/common/enums/access_mode.hpp"
 #include "oracle_connection.hpp"
 #include "storage/oracle_schema_set.hpp"
@@ -38,8 +44,8 @@ public:
 	string GetCatalogType() override {
 		return "oracle";
 	}
-	string GetDefaultSchema() const override {
-		return default_schema;
+	optional<Identifier> GetDefaultSchema() const override {
+		return default_schema.empty() ? optional<Identifier>() : Identifier(default_schema);
 	}
 
 	static string GetConnectionString(ClientContext &context, const string &attach_path,

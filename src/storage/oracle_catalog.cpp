@@ -49,7 +49,7 @@ OracleCatalog::~OracleCatalog() = default;
 
 static string AddOracleConnectionOption(const KeyValueSecret &kv_secret,
                                          const string &name) {
-	Value input_val = kv_secret.TryGetValue(name);
+	Value input_val = kv_secret.TryGetValue(Identifier(name));
 	if (input_val.IsNull()) {
 		return string();
 	}
@@ -98,13 +98,14 @@ void OracleCatalog::Initialize(bool load_builtin) {
 optional_ptr<CatalogEntry> OracleCatalog::CreateSchema(CatalogTransaction transaction,
                                                         CreateSchemaInfo &info) {
 	auto &oracle_transaction = OracleTransaction::Get(transaction.GetContext(), *this);
-	auto entry = schemas.GetEntry(transaction.GetContext(), oracle_transaction, info.schema);
+	auto entry = schemas.GetEntry(transaction.GetContext(), oracle_transaction,
+	                          info.GetQualifiedName().Schema().GetIdentifierName());
 	if (entry) {
 		switch (info.on_conflict) {
 		case OnCreateConflict::REPLACE_ON_CONFLICT: {
 			DropInfo try_drop;
 			try_drop.type = CatalogType::SCHEMA_ENTRY;
-			try_drop.name = info.schema;
+			try_drop.SetName(info.GetQualifiedName().Schema());
 			try_drop.if_not_found = OnEntryNotFound::RETURN_NULL;
 			try_drop.cascade = false;
 			schemas.DropEntry(oracle_transaction, try_drop);
@@ -115,7 +116,7 @@ optional_ptr<CatalogEntry> OracleCatalog::CreateSchema(CatalogTransaction transa
 		case OnCreateConflict::ERROR_ON_CONFLICT:
 		default:
 			throw BinderException("Failed to create schema \"%s\": schema already exists",
-			                       info.schema);
+			                       info.GetQualifiedName().Schema());
 		}
 	}
 	// In Oracle, schemas ARE users; we don't create them here.
@@ -185,7 +186,7 @@ bool OracleCatalog::IsOracleScan(const string &name) {
 void OracleCatalog::MaterializeOracleScans(PhysicalOperator &op) {
 	if (op.type == PhysicalOperatorType::TABLE_SCAN) {
 		auto &table_scan = op.Cast<PhysicalTableScan>();
-		if (OracleCatalog::IsOracleScan(table_scan.function.name)) {
+		if (OracleCatalog::IsOracleScan(table_scan.function.GetName().GetIdentifierName())) {
 			auto &bind_data = table_scan.bind_data->Cast<OracleBindData>();
 			bind_data.requires_materialization = true;
 			bind_data.max_threads = 1;

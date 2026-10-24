@@ -14,8 +14,8 @@ namespace duckdb {
 class OracleIndexEntry : public IndexCatalogEntry {
 public:
 	OracleIndexEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateIndexInfo &info);
-	string GetSchemaName() const override;
-	string GetTableName() const override;
+	Identifier GetSchemaName() const override;
+	Identifier GetTableName() const override;
 
 private:
 	string table_name;

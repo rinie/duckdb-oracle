@@ -12,7 +12,7 @@
 namespace duckdb {
 
 OracleSchemaEntry::OracleSchemaEntry(Catalog &catalog, CreateSchemaInfo &info)
-    : SchemaCatalogEntry(catalog, info), oracle_name(name), tables(*this), indexes(*this),
+    : SchemaCatalogEntry(catalog, info), oracle_name(name.GetIdentifierName()), tables(*this), indexes(*this),
       types(*this) {
 }
 

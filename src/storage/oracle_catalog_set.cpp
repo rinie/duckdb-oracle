@@ -1,3 +1,5 @@
+#include "duckdb/main/client_context.hpp"
+#include "duckdb/catalog/catalog.hpp"
 #include "storage/oracle_catalog_set.hpp"
 #include "storage/oracle_catalog.hpp"
 #include "storage/oracle_transaction.hpp"
@@ -62,7 +64,7 @@ void OracleCatalogSet::Scan(ClientContext &context, OracleTransaction &transacti
 }
 
 optional_ptr<CatalogEntry> OracleCatalogSet::CreateEntryInternal(shared_ptr<CatalogEntry> entry) {
-	auto &name = entry->name;
+	auto name = entry->name.GetIdentifierName();
 	auto result = entry.get();
 	entries[name] = std::move(entry);
 	return result;
@@ -76,10 +78,11 @@ optional_ptr<CatalogEntry> OracleCatalogSet::CreateEntry(OracleTransaction &tran
 
 void OracleCatalogSet::DropEntry(OracleTransaction &transaction, DropInfo &info) {
 	lock_guard<mutex> l(entry_lock);
-	auto entry = entries.find(info.name);
+	auto entry = entries.find(info.GetQualifiedName().Name().GetIdentifierName());
 	if (entry == entries.end()) {
 		if (info.if_not_found == OnEntryNotFound::THROW_EXCEPTION) {
-			throw BinderException("Cannot drop entry \"%s\": does not exist", info.name);
+			throw BinderException("Cannot drop entry \"%s\": does not exist",
+			                      info.GetQualifiedName().Name());
 		}
 		return;
 	}

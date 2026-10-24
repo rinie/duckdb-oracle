@@ -18,7 +18,7 @@ struct OracleAttachData : public TableFunctionData {
 static unique_ptr<FunctionData> OracleAttachBind(ClientContext &context,
                                                    TableFunctionBindInput &input,
                                                    vector<LogicalType> &return_types,
-                                                   vector<string> &names) {
+                                                   vector<Identifier> &names) {
 	auto result = make_uniq<OracleAttachData>();
 	result->dsn = input.inputs[0].GetValue<string>();
 
@@ -99,14 +99,21 @@ static void OracleAttachScan(ClientContext &context, TableFunctionInput &data_p,
 	data.finished = true;
 }
 
+static FunctionSignature OracleAttachSignature() {
+	FunctionSignature signature;
+	signature.AddParameter("connection", LogicalType::VARCHAR)
+	    .WithTypedKwargs("options", [](TypedKwargs &options) {
+		    options.Add("overwrite", LogicalType::BOOLEAN)
+		        .Add("filter_pushdown", LogicalType::BOOLEAN)
+		        .Add("source_schema", LogicalType::VARCHAR)
+		        .Add("sink_schema", LogicalType::VARCHAR)
+		        .Add("suffix", LogicalType::VARCHAR);
+	    });
+	return signature;
+}
+
 OracleAttachFunction::OracleAttachFunction()
-    : TableFunction("oracle_attach", {LogicalType::VARCHAR}, OracleAttachScan,
-                    OracleAttachBind) {
-	named_parameters["overwrite"] = LogicalType::BOOLEAN;
-	named_parameters["filter_pushdown"] = LogicalType::BOOLEAN;
-	named_parameters["source_schema"] = LogicalType::VARCHAR;
-	named_parameters["sink_schema"] = LogicalType::VARCHAR;
-	named_parameters["suffix"] = LogicalType::VARCHAR;
+    : TableFunction("oracle_attach", OracleAttachSignature(), OracleAttachScan, OracleAttachBind) {
 }
 
 } // namespace duckdb

@@ -1,3 +1,5 @@
+#include "duckdb/main/client_context.hpp"
+#include "duckdb/catalog/catalog.hpp"
 #include "storage/oracle_schema_set.hpp"
 #include "storage/oracle_catalog.hpp"
 #include "storage/oracle_transaction.hpp"
@@ -60,7 +62,7 @@ void OracleSchemaSet::LoadEntries(ClientContext &context, OracleTransaction &tra
 	// Create a schema entry per owner — table/column details are loaded lazily on first access.
 	for (auto &owner : owners) {
 		CreateSchemaInfo info;
-		info.schema = owner;
+		info.SetSchema(Identifier(owner));
 		info.on_conflict = OnCreateConflict::IGNORE_ON_CONFLICT;
 		auto entry = make_shared_ptr<OracleSchemaEntry>(catalog, info);
 		entries[owner] = std::move(entry);

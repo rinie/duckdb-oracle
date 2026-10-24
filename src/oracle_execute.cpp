@@ -18,7 +18,7 @@ struct OracleExecuteGlobalState : public GlobalTableFunctionState {
 static unique_ptr<FunctionData> OracleExecuteBind(ClientContext &context,
                                                     TableFunctionBindInput &input,
                                                     vector<LogicalType> &return_types,
-                                                    vector<string> &names) {
+                                                    vector<Identifier> &names) {
 	auto result = make_uniq<OracleExecuteBindData>();
 	result->dsn = input.inputs[0].GetValue<string>();
 	result->query = input.inputs[1].GetValue<string>();

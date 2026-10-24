@@ -231,6 +231,10 @@ static string TransformExpression(const string &column_name, const Expression &e
 	}
 }
 
+bool OracleFilterPushdown::CanPushExpressionDown(ClientContext &, const LogicalGet &, Expression &expr) {
+	return !TransformExpression("dummy", expr).empty();
+}
+
 string OracleFilterPushdown::TransformFilters(const vector<column_t> &column_ids,
                                               optional_ptr<TableFilterSet> filters, const vector<string> &names) {
 	if (!filters || !filters->HasFilters()) {
