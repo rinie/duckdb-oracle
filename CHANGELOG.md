@@ -1,5 +1,29 @@
 # Changelog
 
+## v2.0.0 (2026-10-24) — DuckDB 2.0.0
+
+Port to DuckDB **v2.0.0**. The extension builds against the unstable C++ API, which changed substantially in 2.0; DuckDB 2.0's new stable C API cannot express storage extensions or catalogs, so it is not used.
+
+### Changes
+
+- Names are `Identifier`s throughout the catalog, DDL (`CREATE`/`DROP`/`ALTER`) and DML code
+- Table entries own their column list; table functions use the new `FunctionSignature` and bind callbacks
+- Filter pushdown (`oracle_scan_pushdown`, `oracle_attach(filter_pushdown := true)`) was rewritten for DuckDB 2.0 expression filters. Supported: comparisons, `IN`, `IS [NOT] NULL`, `AND`/`OR` on integer, decimal, float, `VARCHAR`, `DATE`, `TIMESTAMP` and `TIMESTAMP WITH TIME ZONE` constants
+- A pushed-down filter that cannot be rendered as Oracle SQL now raises an error instead of being silently dropped. Use `oracle_scan` (or `oracle_attach` without `filter_pushdown`) to avoid pushdown
+- `MERGE` runs multiple actions one after the other
+
+### Build
+
+- `DONT_LINK` was removed from `extension_config.cmake`
+- Build with `-DDUCKDB_EXPLICIT_VERSION=v2.0.0`; see the README
+
+### Dependencies
+
+- [ODPI-C v5.3.0](https://github.com/oracle/odpi) — Oracle Database Programming Interface for C
+- [DuckDB v2.0.0](https://github.com/duckdb/duckdb/releases/tag/v2.0.0)
+
+---
+
 ## v1.5.6 (2026-10-16) — DuckDB 1.5.6
 
 Bump to DuckDB **v1.5.6**.

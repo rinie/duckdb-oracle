@@ -58,7 +58,7 @@ SinkFinalizeType OracleDelete::Finalize(Pipeline &pipeline, Event &event,
 		for (auto &rowid : gstate.rowids) {
 			string sql = "DELETE FROM " +
 			             OracleUtils::QuoteIdentifier(oracle_table.oracle_schema_name) + "." +
-			             OracleUtils::QuoteIdentifier(oracle_table.name) +
+			             OracleUtils::QuoteIdentifier(oracle_table.name.GetIdentifierName()) +
 			             " WHERE ROWID = " + OracleUtils::WriteLiteral(rowid);
 			connection.Execute(context, sql);
 		}
@@ -80,7 +80,7 @@ string OracleDelete::GetName() const {
 
 InsertionOrderPreservingMap<string> OracleDelete::ParamsToString() const {
 	InsertionOrderPreservingMap<string> result;
-	result["Table Name"] = table.name;
+	result["Table Name"] = table.name.GetIdentifierName();
 	return result;
 }
 

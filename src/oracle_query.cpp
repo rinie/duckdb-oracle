@@ -27,7 +27,7 @@ struct OracleQueryGlobalState : public GlobalTableFunctionState {
 static unique_ptr<FunctionData> OracleQueryBind(ClientContext &context,
                                                   TableFunctionBindInput &input,
                                                   vector<LogicalType> &return_types,
-                                                  vector<string> &names) {
+                                                  vector<Identifier> &names) {
 	auto result = make_uniq<OracleQueryBindData>();
 	result->dsn = input.inputs[0].GetValue<string>();
 	result->query = input.inputs[1].GetValue<string>();
@@ -42,14 +42,15 @@ static unique_ptr<FunctionData> OracleQueryBind(ClientContext &context,
 	if (qresult && qresult->Count() > 0) {
 		idx_t ncols = qresult->rows[0].size();
 		for (idx_t c = 0; c < ncols; c++) {
-			names.push_back("column" + to_string(c));
+			result->names.push_back("column" + to_string(c));
+			names.emplace_back(Identifier("column" + to_string(c)));
 			return_types.push_back(LogicalType::VARCHAR);
 			OracleType ot;
 			ot.info = OracleTypeAnnotation::CAST_TO_VARCHAR;
 			result->oracle_types.push_back(ot);
 		}
 	}
-	result->names = names;
+
 	result->types = return_types;
 
 	// Store result for output
@@ -81,7 +82,7 @@ static void OracleQueryScan(ClientContext &context, TableFunctionInput &data,
 				FlatVector::SetNull(col, count, true);
 			} else {
 				auto str = res.GetString(gstate.current_row, c);
-				FlatVector::GetData<string_t>(col)[count] = StringVector::AddString(col, str);
+				FlatVector::GetDataMutable<string_t>(col)[count] = StringVector::AddString(col, str);
 			}
 		}
 		gstate.current_row++;

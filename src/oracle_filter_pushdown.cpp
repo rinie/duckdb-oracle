@@ -1,153 +1,265 @@
 #include "oracle_filter_pushdown.hpp"
 #include "oracle_utils.hpp"
-#include "duckdb/planner/filter/constant_filter.hpp"
-#include "duckdb/planner/filter/null_filter.hpp"
-#include "duckdb/planner/filter/conjunction_filter.hpp"
-#include "duckdb/common/types/time.hpp"
+#include "duckdb/common/string_util.hpp"
 #include "duckdb/common/types/date.hpp"
+#include "duckdb/common/types/time.hpp"
 #include "duckdb/common/types/timestamp.hpp"
+#include "duckdb/planner/expression/bound_comparison_expression.hpp"
+#include "duckdb/planner/expression/bound_conjunction_expression.hpp"
+#include "duckdb/planner/expression/bound_constant_expression.hpp"
+#include "duckdb/planner/expression/bound_function_expression.hpp"
+#include "duckdb/planner/expression/bound_operator_expression.hpp"
+#include "duckdb/planner/filter/expression_filter.hpp"
+#include "duckdb/planner/filter/table_filter_functions.hpp"
+
+// The expression-based filter transformation follows the shared database-connector library
+// (github.com/duckdb/database-connector) used by the postgres/mysql/sqlite extensions.
 
 namespace duckdb {
 
-static string TransformFilter(const string &col_name, TableFilter &filter);
+static string TransformExpression(const string &column_name, const Expression &expr);
 
-static string TransformConstantFilter(const string &col_name, ConstantFilter &filter) {
-	string op;
-	switch (filter.comparison_type) {
+static bool IsDirectReference(const Expression &expr) {
+	switch (expr.GetExpressionClass()) {
+	case ExpressionClass::BOUND_REF:
+	case ExpressionClass::BOUND_COLUMN_REF:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static bool IsInternalExpression(const Expression &expr) {
+	return expr.GetExpressionClass() == ExpressionClass::BOUND_FUNCTION &&
+	       TableFilterFunctions::IsTableFilterFunction(expr.Cast<BoundFunctionExpression>().Function());
+}
+
+static string GetComparisonOperator(ExpressionType type) {
+	switch (type) {
 	case ExpressionType::COMPARE_EQUAL:
-		op = "=";
-		break;
+		return "=";
 	case ExpressionType::COMPARE_NOTEQUAL:
-		op = "<>";
-		break;
+		return "<>";
 	case ExpressionType::COMPARE_LESSTHAN:
-		op = "<";
-		break;
+		return "<";
 	case ExpressionType::COMPARE_LESSTHANOREQUALTO:
-		op = "<=";
-		break;
+		return "<=";
 	case ExpressionType::COMPARE_GREATERTHAN:
-		op = ">";
-		break;
+		return ">";
 	case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
-		op = ">=";
-		break;
+		return ">=";
 	default:
 		return string();
 	}
-	auto &val = filter.constant;
-	string val_str;
+}
+
+//! Renders a constant as an Oracle literal, or returns an empty string if it cannot be pushed down
+static string WriteConstant(const Value &val) {
 	if (val.IsNull()) {
-		if (filter.comparison_type == ExpressionType::COMPARE_EQUAL) {
-			return OracleUtils::QuoteIdentifier(col_name) + " IS NULL";
-		}
 		return string();
 	}
 	switch (val.type().id()) {
 	case LogicalTypeId::VARCHAR:
-		val_str = OracleUtils::WriteLiteral(StringValue::Get(val));
-		break;
+	case LogicalTypeId::CHAR:
+		return OracleUtils::WriteLiteral(StringValue::Get(val));
 	case LogicalTypeId::DATE: {
-		auto d = DateValue::Get(val);
 		int32_t y, mo, day;
-		Date::Convert(d, y, mo, day);
-		val_str = StringUtil::Format("DATE '%04d-%02d-%02d'", y, mo, day);
-		break;
+		Date::Convert(val.GetValueUnsafe<date_t>(), y, mo, day);
+		return StringUtil::Format("DATE '%04d-%02d-%02d'", y, mo, day);
 	}
-	case LogicalTypeId::TIMESTAMP: {
-		auto ts = TimestampValue::Get(val);
-		auto d = Timestamp::GetDate(ts);
-		auto t = Timestamp::GetTime(ts);
-		int32_t y, mo, day, h, m, s, micros;
-		Date::Convert(d, y, mo, day);
-		Time::Convert(t, h, m, s, micros);
-		val_str = StringUtil::Format("TIMESTAMP '%04d-%02d-%02d %02d:%02d:%02d.%06d'",
-		                              y, mo, day, h, m, s, micros);
-		break;
-	}
+	case LogicalTypeId::TIMESTAMP:
 	case LogicalTypeId::TIMESTAMP_TZ: {
-		// Push as UTC literal — Oracle TIMESTAMP WITH TIME ZONE accepts AT TIME ZONE 'UTC'
-		auto ts = TimestampValue::Get(val);
-		auto d = Timestamp::GetDate(ts);
-		auto t = Timestamp::GetTime(ts);
+		auto ts = val.GetValueUnsafe<timestamp_t>();
 		int32_t y, mo, day, h, m, s, micros;
-		Date::Convert(d, y, mo, day);
-		Time::Convert(t, h, m, s, micros);
-		val_str = StringUtil::Format(
-		    "TIMESTAMP '%04d-%02d-%02d %02d:%02d:%02d.%06d' AT TIME ZONE 'UTC'",
-		    y, mo, day, h, m, s, micros);
-		break;
+		Date::Convert(Timestamp::GetDate(ts), y, mo, day);
+		Time::Convert(Timestamp::GetTime(ts), h, m, s, micros);
+		auto literal =
+		    StringUtil::Format("TIMESTAMP '%04d-%02d-%02d %02d:%02d:%02d.%06d'", y, mo, day, h, m, s, micros);
+		if (val.type().id() == LogicalTypeId::TIMESTAMP_TZ) {
+			// TIMESTAMP_TZ values are UTC instants
+			literal += " AT TIME ZONE 'UTC'";
+		}
+		return literal;
 	}
+	case LogicalTypeId::FLOAT:
+	case LogicalTypeId::DOUBLE: {
+		auto d = val.GetValue<double>();
+		if (!std::isfinite(d)) {
+			return string();
+		}
+		return val.ToString();
+	}
+	case LogicalTypeId::TINYINT:
+	case LogicalTypeId::SMALLINT:
+	case LogicalTypeId::INTEGER:
+	case LogicalTypeId::BIGINT:
+	case LogicalTypeId::UTINYINT:
+	case LogicalTypeId::USMALLINT:
+	case LogicalTypeId::UINTEGER:
+	case LogicalTypeId::UBIGINT:
+	case LogicalTypeId::HUGEINT:
+	case LogicalTypeId::UHUGEINT:
+	case LogicalTypeId::DECIMAL:
+		return val.ToString();
 	default:
-		val_str = val.ToString();
-		break;
+		return string();
 	}
-	return OracleUtils::QuoteIdentifier(col_name) + " " + op + " " + val_str;
 }
 
-static string TransformFilter(const string &col_name, TableFilter &filter) {
-	switch (filter.filter_type) {
-	case TableFilterType::CONSTANT_COMPARISON: {
-		auto &cf = filter.Cast<ConstantFilter>();
-		return TransformConstantFilter(col_name, cf);
+static string TransformComparison(const string &column_name, const Expression &expr) {
+	auto &comparison = expr.Cast<BoundFunctionExpression>();
+	auto comparison_type = comparison.GetExpressionType();
+	auto &left = BoundComparisonExpression::Left(comparison);
+	auto &right = BoundComparisonExpression::Right(comparison);
+	const Value *constant = nullptr;
+	if (IsDirectReference(left) && right.GetExpressionClass() == ExpressionClass::BOUND_CONSTANT) {
+		constant = &right.Cast<BoundConstantExpression>().GetValue();
+	} else if (left.GetExpressionClass() == ExpressionClass::BOUND_CONSTANT && IsDirectReference(right)) {
+		constant = &left.Cast<BoundConstantExpression>().GetValue();
+		comparison_type = FlipComparisonExpression(comparison_type);
+	} else {
+		return string();
 	}
-	case TableFilterType::IS_NULL:
-		return OracleUtils::QuoteIdentifier(col_name) + " IS NULL";
-	case TableFilterType::IS_NOT_NULL:
-		return OracleUtils::QuoteIdentifier(col_name) + " IS NOT NULL";
-	case TableFilterType::CONJUNCTION_AND: {
-		auto &conj = filter.Cast<ConjunctionAndFilter>();
-		vector<string> parts;
-		for (auto &child : conj.child_filters) {
-			auto s = TransformFilter(col_name, *child);
-			if (!s.empty()) {
-				parts.push_back(s);
+	auto op = GetComparisonOperator(comparison_type);
+	auto constant_string = WriteConstant(*constant);
+	if (op.empty() || constant_string.empty()) {
+		return string();
+	}
+	return column_name + " " + op + " " + constant_string;
+}
+
+static string TransformConjunction(const string &column_name, const vector<unique_ptr<Expression>> &children,
+                                   const string &op) {
+	vector<string> parts;
+	for (auto &child : children) {
+		auto part = TransformExpression(column_name, *child);
+		if (part.empty()) {
+			if (op == "AND" && IsInternalExpression(*child)) {
+				// internal filters only prune rows, so an AND can go without them
+				continue;
 			}
-		}
-		if (parts.empty()) {
+			// without one of its children the conjunction would select other rows
 			return string();
 		}
-		return "(" + StringUtil::Join(parts, " AND ") + ")";
+		parts.push_back(std::move(part));
 	}
-	case TableFilterType::CONJUNCTION_OR: {
-		auto &conj = filter.Cast<ConjunctionOrFilter>();
-		vector<string> parts;
-		for (auto &child : conj.child_filters) {
-			auto s = TransformFilter(col_name, *child);
-			if (!s.empty()) {
-				parts.push_back(s);
-			}
-		}
-		if (parts.empty()) {
+	if (parts.empty()) {
+		return string();
+	}
+	return "(" + StringUtil::Join(parts, " " + op + " ") + ")";
+}
+
+static string TransformIn(const string &column_name, const BoundOperatorExpression &op) {
+	auto &children = op.GetChildren();
+	if (children.size() < 2 || !IsDirectReference(*children[0])) {
+		return string();
+	}
+	string in_list;
+	for (idx_t i = 1; i < children.size(); i++) {
+		if (children[i]->GetExpressionClass() != ExpressionClass::BOUND_CONSTANT) {
 			return string();
 		}
-		return "(" + StringUtil::Join(parts, " OR ") + ")";
+		auto constant_string = WriteConstant(children[i]->Cast<BoundConstantExpression>().GetValue());
+		if (constant_string.empty()) {
+			return string();
+		}
+		if (!in_list.empty()) {
+			in_list += ", ";
+		}
+		in_list += constant_string;
+	}
+	return column_name + " IN (" + in_list + ")";
+}
+
+static string TransformExpression(const string &column_name, const Expression &expr) {
+	if (BoundComparisonExpression::IsComparison(expr)) {
+		return TransformComparison(column_name, expr);
+	}
+	switch (expr.GetExpressionClass()) {
+	case ExpressionClass::BOUND_CONJUNCTION: {
+		auto &conjunction = expr.Cast<BoundConjunctionExpression>();
+		switch (conjunction.GetExpressionType()) {
+		case ExpressionType::CONJUNCTION_AND:
+			return TransformConjunction(column_name, conjunction.GetChildren(), "AND");
+		case ExpressionType::CONJUNCTION_OR:
+			return TransformConjunction(column_name, conjunction.GetChildren(), "OR");
+		default:
+			return string();
+		}
+	}
+	case ExpressionClass::BOUND_OPERATOR: {
+		auto &op = expr.Cast<BoundOperatorExpression>();
+		auto &children = op.GetChildren();
+		if (children.empty() || !IsDirectReference(*children[0])) {
+			return string();
+		}
+		switch (op.GetExpressionType()) {
+		case ExpressionType::OPERATOR_IS_NULL:
+			return column_name + " IS NULL";
+		case ExpressionType::OPERATOR_IS_NOT_NULL:
+			return column_name + " IS NOT NULL";
+		case ExpressionType::COMPARE_IN:
+			return TransformIn(column_name, op);
+		default:
+			return string();
+		}
+	}
+	case ExpressionClass::BOUND_FUNCTION: {
+		auto &func = expr.Cast<BoundFunctionExpression>();
+		if (func.Function().GetName() == OptionalFilterScalarFun::NAME && func.BindInfo()) {
+			auto &data = func.BindInfo()->Cast<OptionalFilterFunctionData>();
+			return data.child_filter_expr ? TransformExpression(column_name, *data.child_filter_expr) : string();
+		}
+		if (func.Function().GetName() == SelectivityOptionalFilterScalarFun::NAME && func.BindInfo()) {
+			auto &data = func.BindInfo()->Cast<SelectivityOptionalFilterFunctionData>();
+			return data.child_filter_expr ? TransformExpression(column_name, *data.child_filter_expr) : string();
+		}
+		switch (expr.GetExpressionType()) {
+		case ExpressionType::COMPARE_EQUAL:
+		case ExpressionType::COMPARE_NOTEQUAL:
+		case ExpressionType::COMPARE_LESSTHAN:
+		case ExpressionType::COMPARE_GREATERTHAN:
+		case ExpressionType::COMPARE_LESSTHANOREQUALTO:
+		case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
+			return TransformComparison(column_name, expr);
+		default:
+			return string();
+		}
 	}
 	default:
 		return string();
 	}
+}
+
+bool OracleFilterPushdown::CanPushExpressionDown(ClientContext &, const LogicalGet &, Expression &expr) {
+	return !TransformExpression("dummy", expr).empty();
 }
 
 string OracleFilterPushdown::TransformFilters(const vector<column_t> &column_ids,
-                                               optional_ptr<TableFilterSet> filters,
-                                               const vector<string> &names) {
-	if (!filters || filters->filters.empty()) {
+                                              optional_ptr<TableFilterSet> filters, const vector<string> &names) {
+	if (!filters || !filters->HasFilters()) {
 		return string();
 	}
 	vector<string> filter_parts;
-	for (auto &entry : filters->filters) {
-		auto col_idx = column_ids[entry.first];
-		if (col_idx == COLUMN_IDENTIFIER_ROW_ID) {
+	for (auto &entry : *filters) {
+		auto column_id = column_ids[entry.GetIndex()];
+		if (IsVirtualColumn(column_id)) {
 			continue;
 		}
-		const auto &col_name = names[col_idx];
-		auto s = TransformFilter(col_name, *entry.second);
-		if (!s.empty()) {
-			filter_parts.push_back(s);
+		auto column_name = OracleUtils::QuoteIdentifier(names[column_id]);
+		auto &filter = entry.Filter();
+		auto &expr = *ExpressionFilter::GetExpressionFilter(filter, "OracleFilterPushdown::TransformFilters").expr;
+		auto filter_text = TransformExpression(column_name, expr);
+		if (filter_text.empty()) {
+			if (IsInternalExpression(expr)) {
+				continue;
+			}
+			throw NotImplementedException("Unsupported filter pushdown: use oracle_scan instead of "
+			                              "oracle_scan_pushdown (or oracle_attach without filter_pushdown) to "
+			                              "disable pushdowns. Problematic filter: \"%s\"",
+			                              expr.ToString());
 		}
-	}
-	if (filter_parts.empty()) {
-		return string();
+		filter_parts.push_back(std::move(filter_text));
 	}
 	return StringUtil::Join(filter_parts, " AND ");
 }

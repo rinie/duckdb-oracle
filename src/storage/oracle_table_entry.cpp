@@ -13,17 +13,15 @@ namespace duckdb {
 // ---------------------------------------------------------------------------
 
 OracleTableInfo::OracleTableInfo(OracleSchemaEntry &schema, const string &table_name)
-    : schema(&schema), schema_name(schema.name), oracle_schema_name(schema.oracle_name) {
-	create_info = make_uniq<CreateTableInfo>();
-	create_info->schema = schema.name;
-	create_info->table = table_name;
+    : schema(&schema), schema_name(schema.name.GetIdentifierName()), oracle_schema_name(schema.oracle_name) {
+	create_info = make_uniq<CreateTableInfo>(
+	    QualifiedName(Identifier(), Identifier(schema_name), Identifier(table_name)));
 }
 
 OracleTableInfo::OracleTableInfo(const string &schema_name, const string &table_name)
     : schema(nullptr), schema_name(schema_name), oracle_schema_name(schema_name) {
-	create_info = make_uniq<CreateTableInfo>();
-	create_info->schema = schema_name;
-	create_info->table = table_name;
+	create_info = make_uniq<CreateTableInfo>(
+	    QualifiedName(Identifier(), Identifier(schema_name), Identifier(table_name)));
 }
 
 // ---------------------------------------------------------------------------
@@ -32,7 +30,7 @@ OracleTableInfo::OracleTableInfo(const string &schema_name, const string &table_
 
 OracleTableEntry::OracleTableEntry(Catalog &catalog, SchemaCatalogEntry &schema,
                                     OracleTableInfo &info)
-    : TableCatalogEntry(catalog, schema, *info.create_info),
+    : TableCatalogEntry(catalog, schema, *info.create_info), columns(std::move(info.create_info->columns)),
       oracle_schema_name(schema.Cast<OracleSchemaEntry>().oracle_name),
       is_view(info.is_view),
       oracle_names(info.oracle_names), oracle_types(info.oracle_types),
@@ -41,8 +39,12 @@ OracleTableEntry::OracleTableEntry(Catalog &catalog, SchemaCatalogEntry &schema,
 
 OracleTableEntry::OracleTableEntry(Catalog &catalog, SchemaCatalogEntry &schema,
                                     CreateTableInfo &info)
-    : TableCatalogEntry(catalog, schema, info),
+    : TableCatalogEntry(catalog, schema, info), columns(std::move(info.columns)),
       oracle_schema_name(schema.Cast<OracleSchemaEntry>().oracle_name) {
+}
+
+const ColumnList &OracleTableEntry::GetColumns() const {
+	return columns;
 }
 
 unique_ptr<BaseStatistics> OracleTableEntry::GetStatistics(ClientContext &context,
@@ -59,7 +61,7 @@ TableFunction OracleTableEntry::GetScanFunction(ClientContext &context,
 	result->dsn = catalog.connection_string;
 	result->attach_path = catalog.attach_path;
 	result->schema_name = oracle_schema_name;
-	result->table_name = this->name;
+	result->table_name = this->name.GetIdentifierName();
 	result->oracle_types = oracle_types;
 	result->approx_num_rows = approx_num_rows;
 	result->requires_materialization = false;
@@ -67,7 +69,7 @@ TableFunction OracleTableEntry::GetScanFunction(ClientContext &context,
 	result->max_threads = 1;
 
 	for (auto &col : columns.Logical()) {
-		result->names.push_back(col.GetName());
+		result->names.push_back(col.GetName().GetIdentifierName());
 		result->types.push_back(col.GetType());
 	}
 	result->oracle_names = oracle_names;

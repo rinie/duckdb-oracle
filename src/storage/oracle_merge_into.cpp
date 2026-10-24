@@ -45,7 +45,7 @@ static unique_ptr<MergeIntoOperator> OraclePlanMergeIntoAction(
 		break;
 	}
 	case MergeActionType::MERGE_DELETE: {
-		LogicalDelete delete_op(op.table, 0);
+		LogicalDelete delete_op(op.table, TableIndex(0));
 		auto ref = make_uniq<BoundReferenceExpression>(LogicalType::BIGINT, op.row_id_start);
 		delete_op.expressions.push_back(std::move(ref));
 		delete_op.bound_constraints = std::move(bound_constraints);
@@ -53,7 +53,7 @@ static unique_ptr<MergeIntoOperator> OraclePlanMergeIntoAction(
 		break;
 	}
 	case MergeActionType::MERGE_INSERT: {
-		LogicalInsert insert_op(op.table, 0);
+		LogicalInsert insert_op(op.table, TableIndex(0));
 		insert_op.bound_constraints = std::move(bound_constraints);
 		for (auto &def : op.bound_defaults) {
 			insert_op.bound_defaults.push_back(def->Copy());
@@ -95,20 +95,25 @@ PhysicalOperator &OracleCatalog::PlanMergeInto(ClientContext &context,
 	}
 
 	map<MergeActionCondition, vector<unique_ptr<MergeIntoOperator>>> actions;
+	idx_t append_count = 0;
 	for (auto &entry : op.actions) {
 		vector<unique_ptr<MergeIntoOperator>> planned_actions;
 		for (auto &action : entry.second) {
+			if (action->action_type == MergeActionType::MERGE_INSERT ||
+			    action->action_type == MergeActionType::MERGE_UPDATE ||
+			    action->action_type == MergeActionType::MERGE_DELETE) {
+				append_count++;
+			}
 			planned_actions.push_back(
 			    OraclePlanMergeIntoAction(*this, context, op, planner, *action, plan));
 		}
 		actions.emplace(entry.first, std::move(planned_actions));
 	}
 
-	auto &result = planner.Make<PhysicalMergeInto>(op.types, std::move(actions),
-	                                                op.row_id_start, op.source_marker,
-	                                                false, op.return_chunk);
-	result.children.push_back(plan);
-	return result;
+	// multiple operators appending to the same table cannot run concurrently
+	bool serialize_actions = append_count > 1;
+	return planner.Make<PhysicalMergeInto>(op.types, plan, std::move(actions), op.row_id_start,
+	                                        op.source_marker, false, op.return_chunk, serialize_actions);
 }
 
 } // namespace duckdb

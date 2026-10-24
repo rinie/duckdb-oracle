@@ -1,3 +1,5 @@
+#include "duckdb/main/client_context.hpp"
+#include "duckdb/catalog/catalog.hpp"
 #include "storage/oracle_transaction_manager.hpp"
 #include "storage/oracle_transaction.hpp"
 #include "storage/oracle_catalog.hpp"

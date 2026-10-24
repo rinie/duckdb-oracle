@@ -45,7 +45,7 @@ public:
 		auto transaction = catalog.GetCatalogTransaction(context.client);
 
 		// Handle conflict with existing index
-		auto existing = schema.GetEntry(transaction, CatalogType::INDEX_ENTRY, info->index_name);
+		auto existing = schema.GetEntry(transaction, CatalogType::INDEX_ENTRY, info->GetIndexName());
 		if (existing) {
 			switch (info->on_conflict) {
 			case OnCreateConflict::IGNORE_ON_CONFLICT:
@@ -53,12 +53,14 @@ public:
 			case OnCreateConflict::ERROR_ON_CONFLICT:
 				throw BinderException(
 				    "Index with name \"%s\" already exists in schema \"%s\"",
-				    info->index_name, schema.name);
+				    info->GetIndexName(), schema.name);
 			case OnCreateConflict::REPLACE_ON_CONFLICT: {
 				DropInfo drop_info;
 				drop_info.type = CatalogType::INDEX_ENTRY;
-				drop_info.schema = info->schema;
-				drop_info.name = info->index_name;
+				drop_info.SetQualifiedName(QualifiedName(drop_info.GetQualifiedName().Catalog(),
+				                                         info->GetQualifiedName().Schema(),
+				                                         drop_info.GetQualifiedName().Name()));
+				drop_info.SetName(info->GetIndexName());
 				schema.DropEntry(context.client, drop_info);
 				break;
 			}
@@ -78,8 +80,8 @@ public:
 
 	InsertionOrderPreservingMap<string> ParamsToString() const override {
 		InsertionOrderPreservingMap<string> result;
-		result["Index Name"] = info->index_name;
-		result["Table Name"] = info->table;
+		result["Index Name"] = info->GetIndexName().GetIdentifierName();
+		result["Table Name"] = info->table.GetIdentifierName();
 		return result;
 	}
 };

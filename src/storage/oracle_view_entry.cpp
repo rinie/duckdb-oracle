@@ -1,3 +1,5 @@
+#include "duckdb/main/client_context.hpp"
+#include "duckdb/catalog/catalog.hpp"
 #include "storage/oracle_view_entry.hpp"
 #include "duckdb/parser/parsed_data/create_view_info.hpp"
 
@@ -5,7 +7,7 @@ namespace duckdb {
 
 CreateViewInfo OracleViewEntry::MakeViewInfo(const string &view_name) {
 	CreateViewInfo info;
-	info.view_name = view_name;
+	info.SetViewName(Identifier(view_name));
 	// query = nullptr  — Oracle view SQL is not exposed to DuckDB
 	// sql   = ""       — same reason
 	// aliases / column_types left empty

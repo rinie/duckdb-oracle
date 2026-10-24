@@ -110,7 +110,7 @@ public:
 							if (dpiRowid_getStringValue(data->value.asRowid, &ptr, &len) == 0 && ptr) {
 								int64_t idx = (int64_t)rowid_registry_->size();
 								rowid_registry_->emplace_back(ptr, len);
-								FlatVector::GetData<int64_t>(out_col)[output_offset] = idx;
+								FlatVector::GetDataMutable<int64_t>(out_col)[output_offset] = idx;
 								continue;
 							}
 						}
@@ -284,7 +284,7 @@ static void OracleInitInternal(ClientContext &context, const OracleBindData &bin
 static unique_ptr<FunctionData> OracleBind(ClientContext &context,
                                             TableFunctionBindInput &input,
                                             vector<LogicalType> &return_types,
-                                            vector<string> &names) {
+                                            vector<Identifier> &names) {
 	auto bind_data = make_uniq<OracleBindData>();
 
 	bind_data->dsn = input.inputs[0].GetValue<string>();
@@ -486,20 +486,18 @@ OracleScanToString(TableFunctionToStringInput &input) {
 }
 
 static void OracleScanSerialize(Serializer &, const optional_ptr<FunctionData>,
-                                 const TableFunction &) {
+                                 const BoundTableFunction &) {
 	throw NotImplementedException("OracleScanSerialize");
 }
 
 static unique_ptr<FunctionData> OracleScanDeserialize(Deserializer &,
-                                                       TableFunction &) {
+                                                       BoundTableFunction &) {
 	throw NotImplementedException("OracleScanDeserialize");
 }
 
-static BindInfo OracleGetBindInfo(const optional_ptr<FunctionData> bind_data_p) {
+static optional_ptr<TableCatalogEntry> OracleGetTableEntry(optional_ptr<const FunctionData> bind_data_p) {
 	auto &bind_data = bind_data_p->Cast<OracleBindData>();
-	BindInfo info(ScanType::EXTERNAL);
-	info.table = bind_data.GetTable().get();
-	return info;
+	return bind_data.GetTable().get();
 }
 
 // ---------------------------------------------------------------------------
@@ -514,7 +512,7 @@ OracleScanFunction::OracleScanFunction()
 	to_string = OracleScanToString;
 	serialize = OracleScanSerialize;
 	deserialize = OracleScanDeserialize;
-	get_bind_info = OracleGetBindInfo;
+	get_table_entry = OracleGetTableEntry;
 	projection_pushdown = true;
 	global_initialization = TableFunctionInitialization::INITIALIZE_ON_SCHEDULE;
 }
@@ -527,9 +525,10 @@ OracleScanFunctionFilterPushdown::OracleScanFunctionFilterPushdown()
 	to_string = OracleScanToString;
 	serialize = OracleScanSerialize;
 	deserialize = OracleScanDeserialize;
-	get_bind_info = OracleGetBindInfo;
+	get_table_entry = OracleGetTableEntry;
 	projection_pushdown = true;
 	filter_pushdown = true;
+	pushdown_expression = OracleFilterPushdown::CanPushExpressionDown;
 	global_initialization = TableFunctionInitialization::INITIALIZE_ON_SCHEDULE;
 }
 
