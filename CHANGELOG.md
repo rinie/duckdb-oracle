@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- New `LOAD_COLUMNS` ATTACH option (default `false`): fetches the columns and key constraints of every table with two bulk queries when a schema is first listed, so `SHOW ALL TABLES`, `duckdb_columns()` and `information_schema.columns` show all tables instead of only those used so far
+
+### Documentation
+
+- README: document all ATTACH options (`SECRET`, `SCHEMA`, `PRIVILEGE_LEVEL`, `ISOLATION_LEVEL`, `LOAD_COLUMNS`) and that the default `PRIVILEGE_LEVEL` only shows the connected user's own schema
+
+---
+
 ## v2.0.0 (2026-10-24) — DuckDB 2.0.0
 
 Port to DuckDB **v2.0.0**. The extension builds against the unstable C++ API, which changed substantially in 2.0; DuckDB 2.0's new stable C API cannot express storage extensions or catalogs, so it is not used.

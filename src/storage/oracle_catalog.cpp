@@ -17,11 +17,11 @@ OracleCatalog::OracleCatalog(AttachedDatabase &db_p, string connection_string_p,
                                string schema_to_load,
                                OracleIsolationLevel isolation_level,
                                OraclePrivilegeLevel privilege_level,
-                               ClientContext &context)
+                               ClientContext &context, bool load_columns_p)
     : Catalog(db_p), connection_string(std::move(connection_string_p)),
       attach_path(std::move(attach_path_p)), access_mode(access_mode),
       isolation_level(isolation_level), privilege_level(privilege_level),
-      schemas(*this, schema_to_load), connection_pool(*this) {
+      load_columns(load_columns_p), schemas(*this, schema_to_load), connection_pool(*this) {
 	// Determine default schema from current user if not specified
 	if (schema_to_load.empty()) {
 		// Open a temp connection to get current user

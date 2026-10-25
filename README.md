@@ -19,9 +19,13 @@ ATTACH 'user/password@host:1521/service' AS mydb (TYPE oracle);
 -- Optional: attach only a specific schema
 ATTACH 'user/password@host:1521/service' AS mydb (TYPE oracle, SCHEMA 'HR');
 
--- Browse schemas and tables
+-- Browse schemas and tables (names only; a table's columns are loaded when it is first used)
+SELECT schema_name, table_name FROM duckdb_tables() WHERE database_name = 'mydb';
+
+-- SHOW ALL TABLES also lists columns, so it only shows tables whose columns are loaded.
+-- Attach with LOAD_COLUMNS to have every table listed (see "ATTACH options").
+ATTACH 'user/password@host:1521/service' AS mydb2 (TYPE oracle, LOAD_COLUMNS true);
 SHOW ALL TABLES;
-SELECT * FROM information_schema.tables WHERE table_catalog = 'mydb';
 
 -- Query Oracle tables directly
 SELECT * FROM mydb.hr.employees LIMIT 10;
@@ -45,6 +49,28 @@ user/password@MYDB
 -- Full EZConnect Plus (Oracle 19c+)
 user/password@//host:1521/service?connect_timeout=10
 ```
+
+## ATTACH options
+
+```sql
+ATTACH 'user/password@host:1521/service' AS mydb (TYPE oracle, SCHEMA 'HR', LOAD_COLUMNS true);
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `SECRET` | | Name of a DuckDB secret holding the credentials |
+| `SCHEMA` | | Load only this schema (Oracle owner) |
+| `PRIVILEGE_LEVEL` | `user` | Which data dictionary views are used. `user`: only the connected user's own schema (`USER_*` views). `all`: every schema the user can see (`ALL_*` views). `dba`: `DBA_*` views, requires the DBA role |
+| `ISOLATION_LEVEL` | `read committed` | `read committed` or `serializable` |
+| `LOAD_COLUMNS` | `false` | Fetch the columns and key constraints of every table when a schema is listed (see below) |
+
+By default only the connected user's own schema is visible. To browse tables owned by someone else, use `SCHEMA 'OWNER'` or `PRIVILEGE_LEVEL 'all'`.
+
+### LOAD_COLUMNS
+
+By default a schema listing only fetches table and view names, so attaching and browsing is fast even for large schemas. A table's columns are fetched the first time it is used. Anything that needs columns for all tables, such as `SHOW ALL TABLES`, `duckdb_columns()` and `information_schema.columns`, therefore only sees the tables used so far.
+
+With `LOAD_COLUMNS true` the extension fetches the columns and primary/unique keys of every table in the schema with two bulk queries when the schema is first listed, so all of those show every table. This makes the first listing slower on schemas with many tables or columns. Tables the bulk query cannot see are still listed by name and loaded on first use.
 
 ## Extension options
 
@@ -120,7 +146,7 @@ Using `ROWID` is necessary — not just a convenience — because DuckDB evaluat
 ## How it works
 
 - **Schema browser** — on first `ATTACH`, a lightweight `all_tables UNION ALL all_views` query enumerates table/view names per schema. No column data is fetched yet, so the UI loads instantly regardless of schema size.
-- **Lazy column loading** — the first time a table is referenced in a query, `ReloadEntry` fires two Oracle round-trips (columns + constraints) to fully populate the entry. The result is cached for the session.
+- **Lazy column loading** — the first time a table is referenced in a query, `ReloadEntry` fires two Oracle round-trips (columns + constraints) to fully populate the entry. The result is cached for the session. With the `LOAD_COLUMNS` ATTACH option the columns of the whole schema are fetched up front instead (two bulk queries).
 - **USER_* privilege optimization** — when querying the schema of the connected user, the extension uses `user_tab_columns`, `user_tables`, etc. instead of `all_*` views. These skip Oracle's privilege-check layer and are significantly faster on large databases.
 - **VIEW detection** — views and base tables are distinguished via a `UNION ALL` (inner-join `all_tables` OR inner-join `all_views`). DuckDB catalog entries are tagged with `CatalogType::VIEW_ENTRY` accordingly.
 

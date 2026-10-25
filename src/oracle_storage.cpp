@@ -22,6 +22,7 @@ static unique_ptr<Catalog> OracleAttach(optional_ptr<StorageExtensionInfo> stora
 	string schema_to_load;
 	OracleIsolationLevel isolation_level = OracleIsolationLevel::READ_COMMITTED;
 	OraclePrivilegeLevel privilege_level = OraclePrivilegeLevel::USER;
+	bool load_columns = false;
 
 	for (auto &entry : attach_options.options) {
 		auto lower_name = StringUtil::Lower(entry.first);
@@ -53,6 +54,23 @@ static unique_ptr<Catalog> OracleAttach(optional_ptr<StorageExtensionInfo> stora
 				    "Invalid privilege_level for Oracle: \"%s\" (use USER, ALL, or DBA)",
 				    entry.second.ToString());
 			}
+		} else if (lower_name == "load_columns") {
+			if (entry.second.IsNull()) {
+				throw BinderException("Value for \"LOAD_COLUMNS\" option must not be null");
+			}
+			if (entry.second.type().id() == LogicalTypeId::BOOLEAN) {
+				load_columns = BooleanValue::Get(entry.second);
+			} else {
+				auto param = StringUtil::Lower(entry.second.ToString());
+				if (param == "true") {
+					load_columns = true;
+				} else if (param == "false") {
+					load_columns = false;
+				} else {
+					throw BinderException("Invalid value \"%s\" for \"LOAD_COLUMNS\" option, expected TRUE or FALSE",
+					                      entry.second.ToString());
+				}
+			}
 		} else {
 			throw BinderException("Unrecognized option for Oracle attach: %s", entry.first);
 		}
@@ -63,7 +81,7 @@ static unique_ptr<Catalog> OracleAttach(optional_ptr<StorageExtensionInfo> stora
 	return make_uniq<OracleCatalog>(db, std::move(connection_string),
 	                                 std::move(attach_path), attach_options.access_mode,
 	                                 std::move(schema_to_load), isolation_level,
-	                                 privilege_level, context);
+	                                 privilege_level, context, load_columns);
 }
 
 static unique_ptr<TransactionManager>
