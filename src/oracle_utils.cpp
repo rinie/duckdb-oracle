@@ -96,8 +96,9 @@ dpiConn *OracleUtils::OraConnect(const string &dsn, const string &attach_path) {
 	                   (uint32_t)connect_string.size(), nullptr, &conn_params,
 	                   &conn) < 0) {
 		dpiContext_getError(context, &error_info);
-		throw IOException("Unable to connect to Oracle at \"%s\": %s", attach_path,
-		                  string(error_info.message));
+		// never print the password
+		string target = user.empty() ? connect_string : user + "@" + connect_string;
+		throw IOException("Unable to connect to Oracle at \"%s\": %s", target, string(error_info.message));
 	}
 	return conn;
 }

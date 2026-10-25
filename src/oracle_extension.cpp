@@ -84,7 +84,7 @@ unique_ptr<BaseSecret> CreateOracleSecretFunction(ClientContext &context,
 	    make_uniq<KeyValueSecret>(prefix_paths, "oracle", "config", input.name);
 	for (const auto &named_param : input.options) {
 		auto lower_name = StringUtil::Lower(named_param.first);
-		if (lower_name == "user" || lower_name == "username") {
+		if (lower_name == "user") {
 			result->secret_map["user"] = named_param.second.ToString();
 		} else if (lower_name == "password") {
 			result->secret_map["password"] = named_param.second.ToString();
