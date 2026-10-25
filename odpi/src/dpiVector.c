@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// Copyright (c) 2024, Oracle and/or its affiliates.
+// Copyright (c) 2024, 2026, Oracle and/or its affiliates.
 //
 // This software is dual-licensed to you under the Universal Permissive License
 // (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl and Apache License
@@ -40,7 +40,8 @@ int dpiVector__allocate(dpiConn *conn, dpiVector **vector, dpiError *error)
 {
     dpiVector *tempVector;
 
-    if (dpiUtils__checkClientVersion(conn->env->versionInfo, 23, 4, error) < 0)
+    if (dpiUtils__checkClientVersion(conn->env->versionInfo, 23, 4, 0,
+            error) < 0)
         return DPI_FAILURE;
     if (dpiGen__allocate(DPI_HTYPE_VECTOR, conn->env, (void**) &tempVector,
             error) < 0)
@@ -97,7 +98,7 @@ void dpiVector__free(dpiVector *vector, dpiError *error)
 int dpiVector__getValue(dpiVector *vector, dpiVectorInfo *info,
         dpiError *error)
 {
-    uint32_t numElements;
+    uint32_t numElements, flags;
 
     // only need to acquire information if it was not already cached
     if (!vector->dimensions) {
@@ -135,14 +136,44 @@ int dpiVector__getValue(dpiVector *vector, dpiVectorInfo *info,
                         DPI_ERR_UNSUPPORTED_VECTOR_FORMAT, vector->format);
         }
 
+        // determine if the vector is SPARSE or DENSE
+        if (dpiOci__attrGet(vector->handle, DPI_OCI_DTYPE_VECTOR, &flags, 0,
+                DPI_OCI_ATTR_VECTOR_PROPERTY, "get vector flags", error) < 0)
+            return DPI_FAILURE;
+
+        // if vector is sparse, determine the number of sparse dimensions
+        vector->isSparse = flags & DPI_OCI_ATTR_VECTOR_COL_PROPERTY_IS_SPARSE;
+        if (vector->isSparse) {
+            if (dpiOci__attrGet(vector->handle, DPI_OCI_DTYPE_VECTOR,
+                    &vector->numSparseValues, 0,
+                    DPI_OCI_ATTR_VECTOR_SPARSE_DIMENSION,
+                    "get number of sparse vector dimensions", error) < 0)
+                return DPI_FAILURE;
+            numElements = vector->numSparseValues;
+            if (dpiUtils__allocateMemory(numElements, sizeof(uint32_t), 0,
+                    "allocate sparse vector indices",
+                    (void**) &vector->sparseIndices, error) < 0)
+                return DPI_FAILURE;
+
+        // otherwise, clear the sparse vector members
+        } else {
+            vector->numSparseValues = 0;
+            vector->sparseIndices = NULL;
+        }
+
         // allocate a buffer for the dimensions
         if (dpiUtils__allocateMemory(numElements, vector->dimensionSize, 0,
                 "allocate vector dimensions", &vector->dimensions, error) < 0)
             return DPI_FAILURE;
 
         // populate buffer with array data
-        if (dpiOci__vectorToArray(vector, error) < 0)
-            return DPI_FAILURE;
+        if (vector->isSparse) {
+            if (dpiOci__vectorToSparseArray(vector, error) < 0)
+                return DPI_FAILURE;
+        } else {
+            if (dpiOci__vectorToArray(vector, error) < 0)
+                return DPI_FAILURE;
+        }
 
     }
 
@@ -151,6 +182,9 @@ int dpiVector__getValue(dpiVector *vector, dpiVectorInfo *info,
     info->numDimensions = vector->numDimensions;
     info->dimensionSize = vector->dimensionSize;
     info->dimensions.asPtr = vector->dimensions;
+    info->isSparse = vector->isSparse;
+    info->numSparseValues = vector->numSparseValues;
+    info->sparseIndices = vector->sparseIndices;
     return DPI_SUCCESS;
 }
 
@@ -204,6 +238,10 @@ int dpiVector_setValue(dpiVector *vector, dpiVectorInfo *info)
     if (dpiGen__startPublicFn(vector, DPI_HTYPE_VECTOR, __func__, &error) < 0)
         return DPI_FAILURE;
     DPI_CHECK_PTR_NOT_NULL(vector, info)
-    status = dpiOci__vectorFromArray(vector, info, &error);
+    if (info->isSparse) {
+        status = dpiOci__vectorFromSparseArray(vector, info, &error);
+    } else {
+        status = dpiOci__vectorFromArray(vector, info, &error);
+    }
     return dpiGen__endPublicFn(vector, status, &error);
 }

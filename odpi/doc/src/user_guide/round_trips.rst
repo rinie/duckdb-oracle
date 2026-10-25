@@ -23,12 +23,19 @@ back.
     * - :func:`dpiConn_addRef()`
       - No
       - No relevant notes
+    * - :func:`dpiConn_beginSessionlessTransaction`
+      - No
+      - No relevant notes
     * - :func:`dpiConn_breakExecution()`
       - Yes
       - No relevant notes
     * - :func:`dpiConn_changePassword()`
       - Yes
       - No relevant notes
+    * - :func:`dpiConn_clearAppContext()`
+      - No
+      - The context clear information will be sent to the database during the
+        next call that requires a round trip to the database.
     * - :func:`dpiConn_close()`
       - Maybe
       - If the connection was acquired from a pool, a round-trip is only
@@ -76,6 +83,9 @@ back.
     * - :func:`dpiConn_getHandle()`
       - No
       - No relevant notes
+    * - :func:`dpiConn_getInfo()`
+      - No
+      - No relevant notes
     * - :func:`dpiConn_getInstanceName()`
       - No
       - No relevant notes
@@ -101,6 +111,9 @@ back.
     * - :func:`dpiConn_getOciAttr()`
       - No
       - No relevant notes
+    * - :func:`dpiConn_getPdbName()`
+      - No
+      - No relevant notes
     * - :func:`dpiConn_getServerVersion()`
       - Maybe
       - The first call when requesting the release string always requires a
@@ -121,6 +134,9 @@ back.
       - No
       - No relevant notes
     * - :func:`dpiConn_getTransactionInProgress()`
+      - No
+      - No relevant notes
+    * - :func:`dpiConn_getTransactionPriority()`
       - No
       - No relevant notes
     * - :func:`dpiConn_newDeqOptions()`
@@ -156,18 +172,28 @@ back.
     * - :func:`dpiConn_prepareStmt()`
       - No
       - No relevant notes
+    * - :func:`dpiConn_stmtFromHandle()`
+      - No
+      - No relevant notes
     * - :func:`dpiConn_release()`
       - Maybe
       - If the number of references exceeds 1 or the connection has already
         been closed by a call to :func:`dpiConn_close()` then no round-trips
         are required; otherwise, the connection is closed at this point and the
         notes on the function :func:`dpiConn_close()` apply.
+    * - :func:`dpiConn_resumeSessionlessTransaction()`
+      - No
+      - No relevant notes
     * - :func:`dpiConn_rollback()`
       - Yes
       - No relevant notes
     * - :func:`dpiConn_setAction()`
       - No
       - No relevant notes
+    * - :func:`dpiConn_setAppContext()`
+      - No
+      - The context information will be sent to the database during the next
+        call that requires a round trip to the database.
     * - :func:`dpiConn_setCallTimeout()`
       - No
       - No relevant notes
@@ -201,6 +227,10 @@ back.
     * - :func:`dpiConn_setStmtCacheSize()`
       - No
       - No relevant notes
+    * - :func:`dpiConn_setTransactionPriority()`
+      - No
+      - The transaction priority information will be sent to the database
+        during the next call that requires a round trip to the database.
     * - :func:`dpiConn_shutdownDatabase()`
       - Yes
       - No relevant notes
@@ -211,6 +241,9 @@ back.
       - Yes
       - No relevant notes
     * - :func:`dpiConn_subscribe()`
+      - Yes
+      - No relevant notes
+    * - :func:`suspendSessionlessTransaction()`
       - Yes
       - No relevant notes
     * - :func:`dpiConn_tpcBegin()`
@@ -310,6 +343,9 @@ back.
       - No
       - No relevant notes
     * - :func:`dpiData_getUint64()`
+      - No
+      - No relevant notes
+    * - :func:`dpiData_getVector()`
       - No
       - No relevant notes
     * - :func:`dpiData_setBool()`
@@ -1022,6 +1058,9 @@ back.
       - No
       - No relevant notes
     * - :func:`dpiStmt_getFetchArraySize()`
+      - No
+      - No relevant notes
+    * - :func:`dpiStmt_getHandle()`
       - No
       - No relevant notes
     * - :func:`dpiStmt_getImplicitResult()`

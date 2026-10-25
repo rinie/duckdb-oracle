@@ -19,7 +19,7 @@ if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/odpi)
   message(STATUS "Downloading ODPI-C source code")
   file(
     DOWNLOAD
-    "https://github.com/oracle/odpi/archive/refs/tags/v5.3.0.tar.gz"
+    "https://github.com/oracle/odpi/archive/refs/tags/v26.0.0.tar.gz"
     ${CMAKE_CURRENT_SOURCE_DIR}/odpi.tar.gz
     SHOW_PROGRESS
     STATUS ODPI_DOWNLOAD_RESULT)

@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// Copyright (c) 2016, 2022, Oracle and/or its affiliates.
+// Copyright (c) 2016, 2025, Oracle and/or its affiliates.
 //
 // This software is dual-licensed to you under the Universal Permissive License
 // (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl and Apache License
@@ -224,6 +224,10 @@ int dpiDataBuffer__fromOracleNumberAsText(dpiDataBuffer *data, dpiEnv *env,
                 *targetUtf16++ = '0';
         }
 
+        // add NULL terminator for ease of use by C conversion functions like
+        // strtoll(), strtod(), etc.
+        *targetUtf16++ = 0;
+
     // the following should be the same logic as the section above for UTF-16,
     // simply with single byte encodings instead
     } else {
@@ -255,6 +259,10 @@ int dpiDataBuffer__fromOracleNumberAsText(dpiDataBuffer *data, dpiEnv *env,
             for (i = numDigits; i < decimalPointIndex; i++)
                 *target++ = '0';
         }
+
+        // add NULL terminator for ease of use by C conversion functions like
+        // strtoll(), strtod(), etc.
+        *target++ = 0;
 
     }
 
@@ -768,6 +776,15 @@ dpiTimestamp *dpiData_getTimestamp(dpiData *data)
 uint64_t dpiData_getUint64(dpiData *data)
 {
     return data->value.asUint64;
+}
+
+//-----------------------------------------------------------------------------
+// dpiData_getVector() [PUBLIC]
+//   Return the VECTOR portion of the data.
+//-----------------------------------------------------------------------------
+dpiVector *dpiData_getVector(dpiData *data)
+{
+    return data->value.asVector;
 }
 
 

@@ -1,5 +1,5 @@
 /*-----------------------------------------------------------------------------
- * Copyright (c) 2016, 2022, Oracle and/or its affiliates.
+ * Copyright (c) 2016, 2026, Oracle and/or its affiliates.
  *
  * This software is dual-licensed to you under the Universal Permissive License
  * (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl and Apache License
@@ -100,6 +100,14 @@ create type &main_user..udt_SubObject as object (
     SubNumberValue                      number,
     SubStringValue                      varchar2(60)
 );
+/
+
+create or replace type &main_user..udt_NestTab as table of
+    &main_user..udt_SubObject;
+/
+
+create or replace type &main_user..udt_NestTabOfNestTab as table of
+    &main_user..udt_NestTab;
 /
 
 create type &main_user..udt_ObjectArray as
@@ -311,7 +319,14 @@ create table &main_user..PlsqlSessionCallbacks (
     RequestedTag          varchar2(250),
     ActualTag             varchar2(250),
     FixupTimestamp        timestamp
-)
+);
+
+create table &main_user..TestNestedCollections (
+    IntCol                 number,
+    StringCol              varchar(60),
+    NestedCol              &main_user..udt_NestTabOfNestTab
+) nested table NestedCol store as NestedColStore
+    (nested table column_value store as SubNestedColStore)
 /
 
 -- populate tables
@@ -1513,11 +1528,25 @@ begin
     select to_number(substr(version, 1, instr(version, '.') - 1))
     into t_Version
     from product_component_version
-    where product like 'Oracle Database%';
+    where product like 'Oracle%Database%';
 
     if t_Version >= 21 then
         execute immediate 'create table &main_user..TestJson (' ||
                           '    JsonCol json' ||
+                          ')';
+    end if;
+
+    if t_Version >= 23 then
+        execute immediate 'create table &main_user..TestVectors (' ||
+                          '    IntCol                  number(9) not null,' ||
+                          '    VectorFlexAllCol        vector,' ||
+                          '    VectorFlexTypeCol       vector(2),' ||
+                          '    VectorFlex8Col          vector(*, int8),' ||
+                          '    VectorFlex32Col         vector(*, float32),' ||
+                          '    VectorFlex64Col         vector(*, float64),' ||
+                          '    Vector32Col             vector(10, float32),' ||
+                          '    Vector64Col             vector(10, float64),' ||
+                          '    Vector8Col              vector(10, int8)' ||
                           ')';
     end if;
 

@@ -52,8 +52,10 @@ initialized to default values using the
     Specifies whether external authentication should be used to create the
     sessions in the pool. If this value is 0, the user name and password values
     must be specified in the call to :func:`dpiPool_create()`; otherwise, the
-    user name and password values must be zero length or NULL. The default
-    value is 0. External authentication cannot be used with homogeneous pools.
+    user name and password values must be zero length or NULL, except when the
+    user name specifies a proxy user for token based authentication. The
+    default value is 0. External authentication cannot be used with homogeneous
+    pools except for token based authentication.
 
 .. member:: dpiPoolGetMode dpiPoolCreateParams.getMode
 

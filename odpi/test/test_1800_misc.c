@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// Copyright (c) 2017, 2022, Oracle and/or its affiliates.
+// Copyright (c) 2017, 2025, Oracle and/or its affiliates.
 //
 // This software is dual-licensed to you under the Universal Permissive License
 // (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl and Apache License
@@ -30,11 +30,57 @@
 #include "TestLib.h"
 
 //-----------------------------------------------------------------------------
-// dpiTest_1800_miscChangePwd() [INTERNAL]
+// dpiTest__verifySqlId() [INTERNAL]
+//   This function retrieves the SQL_ID of the provided SQL query from v$sql
+// and compares it with the SQL_ID fetched from dpiStmt_getInfo().
+//-----------------------------------------------------------------------------
+int dpiTest__verifySqlId(dpiTestCase *testCase, dpiConn *conn,
+        dpiStmt *stmt, const char *sql)
+{
+    const char *querySql = "select dbms_sql_translator.sql_id(:1) from dual";
+    dpiNativeTypeNum nativeTypeNum;
+    dpiData *queryData, bindData;
+    uint32_t bufferRowIndex;
+    dpiStmt *queryStmt;
+    dpiStmtInfo info;
+    dpiBytes *bytes;
+    int found;
+
+    // acquire SQL_ID from the statement that was executed
+    if (dpiStmt_getInfo(stmt, &info) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+
+    // acquire SQL_ID from v$sql
+    if (dpiConn_prepareStmt(conn, 0, querySql, strlen(querySql), NULL, 0,
+            &queryStmt) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+    dpiData_setBytes(&bindData, (char*) sql, strlen(sql));
+    if (dpiStmt_bindValueByPos(queryStmt, 1, DPI_NATIVE_TYPE_BYTES,
+            &bindData) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+    if (dpiStmt_execute(queryStmt, DPI_MODE_EXEC_DEFAULT, NULL) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+    if (dpiStmt_fetch(queryStmt, &found, &bufferRowIndex) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+    if (dpiStmt_getQueryValue(queryStmt, 1, &nativeTypeNum, &queryData) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+    bytes = dpiData_getBytes(queryData);
+    if (dpiTestCase_expectStringEqual(testCase, info.sqlId, info.sqlIdLength,
+            bytes->ptr, bytes->length) < 0)
+        return DPI_FAILURE;
+    if (dpiStmt_release(queryStmt) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+
+    return DPI_SUCCESS;
+}
+
+
+//-----------------------------------------------------------------------------
+// dpiTest_1800()
 //   Call dpiConn_changePassword() and create a new connection using the new
 // password to verify that the password was indeed changed (no error).
 //-----------------------------------------------------------------------------
-int dpiTest_1800_miscChangePwd(dpiTestCase *testCase, dpiTestParams *params)
+int dpiTest_1800(dpiTestCase *testCase, dpiTestParams *params)
 {
     const char *newpwd = "newpwd";
     dpiContext *context;
@@ -66,10 +112,10 @@ int dpiTest_1800_miscChangePwd(dpiTestCase *testCase, dpiTestParams *params)
 
 
 //-----------------------------------------------------------------------------
-// dpiTest_1801_miscPing() [INTERNAL]
+// dpiTest_1801() [INTERNAL]
 //   call dpiConn_ping() (no error)
 //-----------------------------------------------------------------------------
-int dpiTest_1801_miscPing(dpiTestCase *testCase, dpiTestParams *params)
+int dpiTest_1801(dpiTestCase *testCase, dpiTestParams *params)
 {
     dpiConn *conn;
 
@@ -83,11 +129,11 @@ int dpiTest_1801_miscPing(dpiTestCase *testCase, dpiTestParams *params)
 
 
 //-----------------------------------------------------------------------------
-// dpiTest_1802_fetchColAsXMLType() [INTERNAL]
+// dpiTest_1802() [INTERNAL]
 //   Prepare and execute a query which fetches an XMLType object and verify
 // that it is returned as a string (no error).
 //-----------------------------------------------------------------------------
-int dpiTest_1802_fetchColAsXMLType(dpiTestCase *testCase, dpiTestParams *params)
+int dpiTest_1802(dpiTestCase *testCase, dpiTestParams *params)
 {
     const char *sql = "select XMLElement(\"String\", StringCol) from "
             "TestStrings where IntCol = 1";
@@ -126,11 +172,10 @@ int dpiTest_1802_fetchColAsXMLType(dpiTestCase *testCase, dpiTestParams *params)
 
 
 //-----------------------------------------------------------------------------
-// dpiTest_1803_insertDataIntoXMLColAndVerify() [INTERNAL]
+// dpiTest_1803() [INTERNAL]
 //   Insert data into XMLCol. Fetch the data from XMLCol and verify(no error).
 //-----------------------------------------------------------------------------
-int dpiTest_1803_insertDataIntoXMLColAndVerify(dpiTestCase *testCase,
-        dpiTestParams *params)
+int dpiTest_1803(dpiTestCase *testCase, dpiTestParams *params)
 {
     const char *selectSql = "select XMLCol from TestXML where IntCol = 1";
     const char *insertSql =
@@ -197,12 +242,11 @@ int dpiTest_1803_insertDataIntoXMLColAndVerify(dpiTestCase *testCase,
 
 
 //-----------------------------------------------------------------------------
-// dpiTest_1804_verifySetNullAndGetIsNull()
+// dpiTest_1804()
 //   Verify dpiData_setNull() and dpiData_getIsNull() are working properly
 // (no error).
 //-----------------------------------------------------------------------------
-int dpiTest_1804_verifySetNullAndGetIsNull(dpiTestCase *testCase,
-        dpiTestParams *params)
+int dpiTest_1804(dpiTestCase *testCase, dpiTestParams *params)
 {
     dpiData data;
 
@@ -218,21 +262,145 @@ int dpiTest_1804_verifySetNullAndGetIsNull(dpiTestCase *testCase,
 
 
 //-----------------------------------------------------------------------------
+// dpiTest_1805()
+//   Verify SQL_ID is NULL after dpiConn_prepareStmt() and that the value
+// returned after dpiStmt_execute() matches the value found in v$sql. This
+// requires 12.2 or higher.
+//-----------------------------------------------------------------------------
+int dpiTest_1805(dpiTestCase *testCase, dpiTestParams *params)
+{
+    char *sql = "select 100 from dual";
+    dpiStmtInfo info;
+    dpiConn *conn;
+    dpiStmt *stmt;
+
+    if (dpiTestCase_setSkippedIfVersionTooOld(testCase, 0, 12, 2) < 0)
+        return DPI_FAILURE;
+    if (dpiTestCase_getConnection(testCase, &conn) < 0)
+        return DPI_FAILURE;
+    if (dpiConn_prepareStmt(conn, 0, sql, strlen(sql), NULL, 0, &stmt) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+    if (dpiStmt_getInfo(stmt, &info) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+    if (info.sqlId && info.sqlIdLength > 0)
+        return dpiTestCase_setFailed(testCase, "SQL_ID is not NULL");
+    if (dpiStmt_execute(stmt, DPI_MODE_EXEC_DEFAULT, NULL) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+    if (dpiTest__verifySqlId(testCase, conn, stmt, sql) < 0)
+        return DPI_FAILURE;
+    if (dpiStmt_release(stmt) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+
+    return DPI_SUCCESS;
+}
+
+
+//-----------------------------------------------------------------------------
+// dpiTest_1806()
+//   Verify SQL_ID is NULL when dpiStmt_execute() fails. This requires 12.2 or
+// higher.
+//-----------------------------------------------------------------------------
+int dpiTest_1806(dpiTestCase *testCase, dpiTestParams *params)
+{
+    const char *sql = "select * from TestDummy";
+    dpiStmtInfo info;
+    dpiConn *conn;
+    dpiStmt *stmt;
+
+    if (dpiTestCase_setSkippedIfVersionTooOld(testCase, 0, 12, 2) < 0)
+        return DPI_FAILURE;
+    if (dpiTestCase_getConnection(testCase, &conn) < 0)
+        return DPI_FAILURE;
+    if (dpiConn_prepareStmt(conn, 0, sql, strlen(sql), NULL, 0, &stmt) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+    dpiStmt_execute(stmt, DPI_MODE_EXEC_DEFAULT, NULL);
+    if (dpiStmt_getInfo(stmt, &info) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+    if (info.sqlId && info.sqlIdLength > 0)
+        return dpiTestCase_setFailed(testCase, "SQL_ID is not NULL");
+    if (dpiStmt_release(stmt) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+
+    return DPI_SUCCESS;
+}
+
+
+//-----------------------------------------------------------------------------
+// dpiTest_1807()
+//   Verify SQL_ID value when using bind variables. This requires 12.2 or
+// higher.
+//-----------------------------------------------------------------------------
+int dpiTest_1807(dpiTestCase *testCase, dpiTestParams *params)
+{
+    const char *sql = "insert into TestTempTable values (:1, 'test1')";
+    const char *truncateSql = "truncate table TestTempTable";
+    uint32_t iter, numOfRows = 3, numQueryColumns;
+    dpiData *intColValue;
+    dpiVar *intColVar;
+    dpiConn *conn;
+    dpiStmt *stmt;
+
+    // truncate table
+    if (dpiTestCase_setSkippedIfVersionTooOld(testCase, 0, 12, 2) < 0)
+        return DPI_FAILURE;
+    if (dpiTestCase_getConnection(testCase, &conn) < 0)
+        return DPI_FAILURE;
+    if (dpiConn_prepareStmt(conn, 0, truncateSql, strlen(truncateSql), NULL, 0,
+            &stmt) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+    if (dpiStmt_execute(stmt, DPI_MODE_EXEC_DEFAULT, NULL) < 0)
+            return dpiTestCase_setFailedFromError(testCase);
+    if (dpiStmt_release(stmt) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+
+    // perform insert with binds and verify SQL_ID
+    if (dpiConn_newVar(conn, DPI_ORACLE_TYPE_NUMBER, DPI_NATIVE_TYPE_INT64,
+            4, 0, 0, 0, NULL, &intColVar, &intColValue) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+    if (dpiConn_prepareStmt(conn, 0, sql, strlen(sql), NULL, 0, &stmt) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+    for (iter = 1; iter <= numOfRows; iter++) {
+        if (dpiStmt_bindByPos(stmt, 1, intColVar) < 0)
+            return dpiTestCase_setFailedFromError(testCase);
+        dpiData_setInt64(intColValue, iter);
+        if (dpiStmt_execute(stmt, DPI_MODE_EXEC_DEFAULT, &numQueryColumns) < 0)
+            return dpiTestCase_setFailedFromError(testCase);
+        if (dpiTest__verifySqlId(testCase, conn, stmt, sql) < 0)
+            return DPI_FAILURE;
+    }
+    if (dpiStmt_release(stmt) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+    if (dpiVar_release(intColVar) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+    if (dpiConn_commit(conn) < 0)
+        return dpiTestCase_setFailedFromError(testCase);
+
+    return DPI_SUCCESS;
+}
+
+
+//-----------------------------------------------------------------------------
 // main()
 //-----------------------------------------------------------------------------
 int main(int argc, char **argv)
 {
     dpiTestSuite_initialize(1800);
-    dpiTestSuite_addCase(dpiTest_1800_miscChangePwd,
+    dpiTestSuite_addCase(dpiTest_1800,
             "change password and verify (no error)");
-    dpiTestSuite_addCase(dpiTest_1801_miscPing,
+    dpiTestSuite_addCase(dpiTest_1801,
             "dpiConn_ping() (no error)");
-    dpiTestSuite_addCase(dpiTest_1802_fetchColAsXMLType,
+    dpiTestSuite_addCase(dpiTest_1802,
             "fetch an XMLType object as a string");
-    dpiTestSuite_addCase(dpiTest_1803_insertDataIntoXMLColAndVerify,
+    dpiTestSuite_addCase(dpiTest_1803,
             "insert data into table containing XMLType and verify fetch");
-    dpiTestSuite_addCase(dpiTest_1804_verifySetNullAndGetIsNull,
+    dpiTestSuite_addCase(dpiTest_1804,
             "verify dpiData_setNull() & dpiData_getIsNull()");
+    dpiTestSuite_addCase(dpiTest_1805,
+            "verify SQL_ID with simple query");
+    dpiTestSuite_addCase(dpiTest_1806,
+            "verify SQL_ID is NULL when exec stmt fails");
+    dpiTestSuite_addCase(dpiTest_1807,
+            "verify SQL_ID values matches with binds");
     dpiTestSuite_run();
     return 0;
 }
