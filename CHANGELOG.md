@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Performance
+
+- `INSERT`, `UPDATE` and `DELETE` (and therefore `MERGE` and `CREATE TABLE AS`) send each chunk of up to 2048 rows to Oracle as one array-bound statement instead of one statement per row. Checked on Oracle 19c: 100000 rows are inserted in about 3 seconds, 50000 rows updated in about 2.6 seconds and 10000 rows deleted in about 1 second
+- Values are sent as bind variables instead of SQL text, so `BLOB` values up to 32767 bytes can be inserted (the limit was 2000 bytes) and numbers are converted independently of the NLS settings
+- A chunk with a value that cannot be bound (text or bytes above 32767 bytes, infinite dates, `NaN`/infinite floats, nested types) is sent with the previous literal statements, so these keep working
+- `ora_debug_show_queries` prints `-- N rows batched` for array-bound statements
+
 ### Documentation
 
 - README: document the `READ_ONLY` ATTACH option (checked on Oracle 19c: reads work, `CREATE TABLE` is refused) and that the `oracle_*` table functions ignore it
