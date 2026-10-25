@@ -53,15 +53,14 @@ SinkFinalizeType OracleDelete::Finalize(Pipeline &pipeline, Event &event,
 	auto &transaction = OracleTransaction::Get(context, oracle_table.catalog);
 	auto &connection = transaction.GetConnection();
 
-	// DELETE using collected ROWIDs
-	if (!gstate.rowids.empty()) {
-		for (auto &rowid : gstate.rowids) {
-			string sql = "DELETE FROM " +
-			             OracleUtils::QuoteIdentifier(oracle_table.oracle_schema_name) + "." +
-			             OracleUtils::QuoteIdentifier(oracle_table.name.GetIdentifierName()) +
-			             " WHERE ROWID = " + OracleUtils::WriteLiteral(rowid);
-			connection.Execute(context, sql);
-		}
+	// DELETE using collected ROWIDs, one array-bound statement per batch
+	static constexpr idx_t BATCH_ROWS = 10000;
+	string sql = "DELETE FROM " + OracleUtils::QuoteIdentifier(oracle_table.oracle_schema_name) + "." +
+	             OracleUtils::QuoteIdentifier(oracle_table.name.GetIdentifierName()) + " WHERE ROWID = :1";
+	for (idx_t start = 0; start < gstate.rowids.size(); start += BATCH_ROWS) {
+		idx_t count = MinValue<idx_t>(BATCH_ROWS, gstate.rowids.size() - start);
+		connection.ExecuteBatch(context, sql, {LogicalType::VARCHAR}, count,
+		                        [&](idx_t, idx_t row) { return Value(gstate.rowids[start + row]); });
 	}
 	return SinkFinalizeType::READY;
 }
