@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+
+- README: document the table functions `oracle_query`, `oracle_execute`, `oracle_scan`, `oracle_scan_pushdown`, `oracle_attach` and `oracle_clear_cache`
+
+---
+
 ## v2.0.3 (2026-10-25) — DuckDB 2.0.0
 
 ### Fixes
