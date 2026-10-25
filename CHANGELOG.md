@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixes (found with a scratch-table test on Oracle 19c)
+
+- `CLOB`/`NCLOB` columns were read as empty strings (and `BLOB` columns as empty blobs): they are now fetched as text/bytes, also by `oracle_query`
+- Selecting from a table right after `CREATE TABLE` in the same session raised an internal DuckDB error (`Attempted to access index 0 within vector of size 0`) that invalidated the database. The new table is now read back from Oracle after creation
+- A schema listing no longer replaces an already loaded table by a name-only entry (which made `duckdb_columns()` / `SHOW ALL TABLES` lose tables that had just been used)
+- `INSERT`/`UPDATE` of `TIMESTAMP WITH TIME ZONE` (`ORA-01843`) and `INTERVAL DAY TO SECOND` (`ORA-01867`) values now use proper Oracle literals instead of strings that depend on NLS settings; numbers are sent as numeric literals, not strings
+- Text longer than 4000 bytes is now inserted as a concatenation of `TO_CLOB(...)` pieces instead of failing with `ORA-01704` (untested on Oracle)
+- `ora_debug_show_queries` now also prints the SQL of table scans (including the pushed-down `WHERE` clause)
+
 ### Dependencies
 
 - Update [ODPI-C](https://github.com/oracle/odpi) from v5.3.0 to **v26.0.0** (ODPI-C now uses the two-digit release year as its major version)

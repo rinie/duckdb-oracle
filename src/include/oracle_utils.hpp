@@ -90,6 +90,11 @@ public:
 	//! Handles NULL, numeric, string, date, timestamp, and boolean types.
 	static string ValueToOracleSQL(const Value &val);
 
+	//! Make an executed statement return CLOB/NCLOB columns as text and BLOB columns as bytes
+	//! instead of LOB locators, which the row converters cannot read. Call after dpiStmt_execute
+	//! and before the first fetch.
+	static void DefineLobsAsBytes(dpiStmt *stmt, uint32_t num_cols);
+
 private:
 	static dpiContext *g_dpi_context;
 	static mutex g_context_mutex;

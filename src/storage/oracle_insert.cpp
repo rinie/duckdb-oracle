@@ -107,47 +107,6 @@ unique_ptr<GlobalSinkState> OracleInsert::GetGlobalSinkState(ClientContext &cont
 // Sink
 // ---------------------------------------------------------------------------
 
-static string ValueToOracleSQL(const Value &val) {
-	if (val.IsNull()) {
-		return "NULL";
-	}
-	switch (val.type().id()) {
-	case LogicalTypeId::BOOLEAN:
-		return BooleanValue::Get(val) ? "1" : "0";
-	case LogicalTypeId::VARCHAR:
-		return OracleUtils::WriteLiteral(StringValue::Get(val));
-	case LogicalTypeId::DATE: {
-		auto d = DateValue::Get(val);
-		int32_t y, m, day;
-		Date::Convert(d, y, m, day);
-		return StringUtil::Format("DATE '%04d-%02d-%02d'", y, m, day);
-	}
-	case LogicalTypeId::TIMESTAMP: {
-		auto ts = TimestampValue::Get(val);
-		auto d = Timestamp::GetDate(ts);
-		auto t = Timestamp::GetTime(ts);
-		int32_t y, mo, day, h, mi, s, us;
-		Date::Convert(d, y, mo, day);
-		Time::Convert(t, h, mi, s, us);
-		return StringUtil::Format(
-		    "TIMESTAMP '%04d-%02d-%02d %02d:%02d:%02d.%06d'", y, mo, day, h, mi, s, us);
-	}
-	case LogicalTypeId::BLOB: {
-		// Hex-encode raw bytes for Oracle HEXTORAW(...)
-		auto raw = StringValue::Get(val);
-		string hex;
-		static const char hx[] = "0123456789ABCDEF";
-		for (uint8_t b : raw) {
-			hex += hx[b >> 4];
-			hex += hx[b & 0xF];
-		}
-		return "HEXTORAW('" + hex + "')";
-	}
-	default:
-		return OracleUtils::WriteLiteral(val.ToString());
-	}
-}
-
 SinkResultType OracleInsert::Sink(ExecutionContext &context, DataChunk &chunk,
                                    OperatorSinkInput &input) const {
 	auto &gstate = input.global_state.Cast<OracleInsertGlobalState>();
@@ -162,7 +121,7 @@ SinkResultType OracleInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 		for (idx_t c = 0; c < num_cols; c++) {
 			if (c > 0) sql += ", ";
 			auto val = chunk.GetValue(c, row);
-			sql += ValueToOracleSQL(val);
+			sql += OracleUtils::ValueToOracleSQL(val);
 		}
 		sql += ")";
 		connection.Execute(context.client, sql);

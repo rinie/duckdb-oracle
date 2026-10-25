@@ -5,6 +5,7 @@
 #include "duckdb/common/types/timestamp.hpp"
 
 #include <cctype>
+#include <cmath>
 #include <cstring>
 
 namespace duckdb {
@@ -329,13 +330,49 @@ string OracleUtils::WriteLiteral(const string &value) {
 	return result;
 }
 
+//! "TIMESTAMP 'YYYY-MM-DD HH24:MI:SS.FF6'" for a timestamp
+static string TimestampLiteral(timestamp_t ts) {
+	auto d = Timestamp::GetDate(ts);
+	auto t = Timestamp::GetTime(ts);
+	int32_t y, mo, day, h, m, s, micros;
+	Date::Convert(d, y, mo, day);
+	Time::Convert(t, h, m, s, micros);
+	return StringUtil::Format("TIMESTAMP '%04d-%02d-%02d %02d:%02d:%02d.%06d'", y, mo, day, h, m, s, micros);
+}
+
+//! A text literal. SQL string literals are limited to 4000 bytes, so longer text is sent as
+//! a concatenation of TO_CLOB(...) pieces.
+static string TextLiteral(const string &text) {
+	auto literal = OracleUtils::WriteLiteral(text);
+	if (literal.size() <= 4000) {
+		return literal;
+	}
+	string result;
+	// 1500 bytes escape to at most 3002 bytes
+	static constexpr size_t CHUNK_BYTES = 1500;
+	size_t pos = 0;
+	while (pos < text.size()) {
+		size_t len = MinValue<size_t>(CHUNK_BYTES, text.size() - pos);
+		// do not split a UTF-8 sequence
+		while (pos + len < text.size() && len > 1 && (static_cast<unsigned char>(text[pos + len]) & 0xC0) == 0x80) {
+			len--;
+		}
+		if (!result.empty()) {
+			result += " || ";
+		}
+		result += "TO_CLOB(" + OracleUtils::WriteLiteral(text.substr(pos, len)) + ")";
+		pos += len;
+	}
+	return result;
+}
+
 string OracleUtils::ValueToOracleSQL(const Value &val) {
 	if (val.IsNull()) {
 		return "NULL";
 	}
 	switch (val.type().id()) {
 	case LogicalTypeId::BOOLEAN:
-		return val.GetValue<bool>() ? "1" : "0";
+		return BooleanValue::Get(val) ? "1" : "0";
 	case LogicalTypeId::TINYINT:
 	case LogicalTypeId::SMALLINT:
 	case LogicalTypeId::INTEGER:
@@ -344,14 +381,32 @@ string OracleUtils::ValueToOracleSQL(const Value &val) {
 	case LogicalTypeId::USMALLINT:
 	case LogicalTypeId::UINTEGER:
 	case LogicalTypeId::UBIGINT:
-	case LogicalTypeId::FLOAT:
-	case LogicalTypeId::DOUBLE:
-	case LogicalTypeId::DECIMAL:
 	case LogicalTypeId::HUGEINT:
+	case LogicalTypeId::UHUGEINT:
+	case LogicalTypeId::DECIMAL:
+		// numeric literal, not a string that Oracle would have to convert using its NLS settings
 		return val.ToString();
+	case LogicalTypeId::FLOAT:
+	case LogicalTypeId::DOUBLE: {
+		auto d = val.GetValue<double>();
+		if (!std::isfinite(d)) {
+			return WriteLiteral(val.ToString());
+		}
+		return val.ToString();
+	}
 	case LogicalTypeId::VARCHAR:
-	case LogicalTypeId::BLOB:
-		return WriteLiteral(val.ToString());
+		return TextLiteral(StringValue::Get(val));
+	case LogicalTypeId::BLOB: {
+		// hex-encode the bytes for HEXTORAW(...); RAW (and BLOB, implicitly) columns take it
+		auto raw = StringValue::Get(val);
+		string hex;
+		static const char hx[] = "0123456789ABCDEF";
+		for (uint8_t b : raw) {
+			hex += hx[b >> 4];
+			hex += hx[b & 0xF];
+		}
+		return "HEXTORAW('" + hex + "')";
+	}
 	case LogicalTypeId::DATE: {
 		auto d = DateValue::Get(val);
 		int32_t y, mo, day;
@@ -361,18 +416,55 @@ string OracleUtils::ValueToOracleSQL(const Value &val) {
 	case LogicalTypeId::TIMESTAMP:
 	case LogicalTypeId::TIMESTAMP_SEC:
 	case LogicalTypeId::TIMESTAMP_MS:
-	case LogicalTypeId::TIMESTAMP_NS: {
-		auto ts = TimestampValue::Get(val);
-		auto d = Timestamp::GetDate(ts);
-		auto t = Timestamp::GetTime(ts);
-		int32_t y, mo, day, h, m, s, micros;
-		Date::Convert(d, y, mo, day);
-		Time::Convert(t, h, m, s, micros);
-		return StringUtil::Format("TIMESTAMP '%04d-%02d-%02d %02d:%02d:%02d.%06d'",
-		                          y, mo, day, h, m, s, micros);
+	case LogicalTypeId::TIMESTAMP_NS:
+		return TimestampLiteral(val.DefaultCastAs(LogicalType::TIMESTAMP).GetValueUnsafe<timestamp_t>());
+	case LogicalTypeId::TIMESTAMP_TZ:
+		// the stored value is a UTC instant; a plain string would depend on NLS_TIMESTAMP_TZ_FORMAT
+		return "FROM_TZ(" + TimestampLiteral(val.GetValueUnsafe<timestamp_t>()) + ", '+00:00')";
+	case LogicalTypeId::INTERVAL: {
+		auto interval = val.GetValueUnsafe<interval_t>();
+		if (interval.months != 0) {
+			throw InvalidInputException(
+			    "An INTERVAL with a month component cannot be stored in an Oracle INTERVAL DAY TO SECOND");
+		}
+		static constexpr int64_t MICROS_PER_DAY = 86400000000LL;
+		int64_t total = static_cast<int64_t>(interval.days) * MICROS_PER_DAY + interval.micros;
+		bool negative = total < 0;
+		uint64_t abs_total = negative ? static_cast<uint64_t>(-total) : static_cast<uint64_t>(total);
+		uint64_t days = abs_total / MICROS_PER_DAY;
+		uint64_t rest = abs_total % MICROS_PER_DAY;
+		return StringUtil::Format("INTERVAL '%s%llu %02llu:%02llu:%02llu.%06llu' DAY(9) TO SECOND(6)",
+		                          negative ? "-" : "", (unsigned long long)days,
+		                          (unsigned long long)(rest / 3600000000ULL),
+		                          (unsigned long long)(rest / 60000000ULL % 60),
+		                          (unsigned long long)(rest / 1000000ULL % 60), (unsigned long long)(rest % 1000000ULL));
 	}
 	default:
-		return WriteLiteral(val.ToString());
+		return TextLiteral(val.ToString());
+	}
+}
+
+void OracleUtils::DefineLobsAsBytes(dpiStmt *stmt, uint32_t num_cols) {
+	// A size above ODPI-C's basic buffer limit makes the variable dynamic: values of any length
+	// are fetched in pieces and nothing of that size is allocated up front.
+	static constexpr uint32_t DYNAMIC_SIZE = 1U << 30;
+	for (uint32_t pos = 1; pos <= num_cols; pos++) {
+		dpiQueryInfo info;
+		if (dpiStmt_getQueryInfo(stmt, pos, &info) < 0) {
+			continue;
+		}
+		switch (info.typeInfo.oracleTypeNum) {
+		case DPI_ORACLE_TYPE_CLOB:
+		case DPI_ORACLE_TYPE_NCLOB:
+			dpiStmt_defineValue(stmt, pos, DPI_ORACLE_TYPE_LONG_VARCHAR, DPI_NATIVE_TYPE_BYTES, DYNAMIC_SIZE, 1,
+			                    nullptr);
+			break;
+		case DPI_ORACLE_TYPE_BLOB:
+			dpiStmt_defineValue(stmt, pos, DPI_ORACLE_TYPE_LONG_RAW, DPI_NATIVE_TYPE_BYTES, DYNAMIC_SIZE, 1, nullptr);
+			break;
+		default:
+			break;
+		}
 	}
 }
 

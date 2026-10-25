@@ -116,6 +116,9 @@ unique_ptr<OracleResult> OracleConnection::ExecuteQuery(const string &query,
 		return result;
 	}
 
+	// CLOB/BLOB columns are fetched as text/bytes instead of LOB locators
+	OracleUtils::DefineLobsAsBytes(stmt, num_cols);
+
 	// SELECT: fetch all rows
 	int found = 0;
 	uint32_t buffer_row_index = 0;
