@@ -57,6 +57,9 @@ public:
 
 protected:
 	void LoadEntries(ClientContext &context, OracleTransaction &transaction) override;
+	//! Replace the name-only stubs by fully populated entries, using one column query and one
+	//! constraint query for the whole schema (ATTACH option LOAD_COLUMNS)
+	void LoadColumnsBulk(OracleTransaction &transaction, OraclePrivilegeLevel level);
 	bool SupportReload() const override {
 		return true;
 	}

@@ -231,6 +231,42 @@ void OracleTableSet::AddColumn(OracleResult &result, idx_t row,
 	create_info.columns.AddColumn(std::move(column));
 }
 
+//! Adds the PRIMARY KEY / UNIQUE constraints found in the given rows of a constraint query
+//! (columns: table_name(0), constraint_name(1), constraint_type(2), column_name(3), position(4))
+static void AddUniqueConstraints(OracleResult &con_result, const vector<idx_t> &rows, OracleTableInfo &table_info) {
+	case_insensitive_map_t<vector<string>> pk_cols;
+	case_insensitive_map_t<string> con_types;
+	for (auto row : rows) {
+		auto con_name = con_result.GetString(row, 1);
+		auto con_type = con_result.GetString(row, 2);
+		auto col_name = con_result.GetString(row, 3);
+		pk_cols[con_name].push_back(col_name);
+		con_types[con_name] = con_type;
+	}
+	for (auto &entry : pk_cols) {
+		bool is_pk = (con_types[entry.first] == "P");
+		vector<Identifier> constraint_columns;
+		for (auto &column_name : entry.second) {
+			constraint_columns.push_back(Identifier(column_name));
+		}
+		table_info.create_info->constraints.push_back(
+		    make_uniq<UniqueConstraint>(std::move(constraint_columns), is_pk));
+	}
+}
+
+//! Turns a per-table column/constraint query into one that covers the whole schema: the
+//! ":table_name" predicate is neutralised and column rows are ordered by table first.
+static string MakeSchemaWideQuery(string query) {
+	// "cc." has to go first: "c.table_name" is a suffix of "cc.table_name"
+	query = StringUtil::Replace(query, "cc.table_name = :table_name", "1 = 1");
+	query = StringUtil::Replace(query, "c.table_name = :table_name", "1 = 1");
+	query = StringUtil::Replace(query, "ORDER BY 11", "ORDER BY 2, 11");
+	if (query.find(":table_name") != string::npos) {
+		throw InternalException("Oracle schema-wide query still filters on :table_name");
+	}
+	return query;
+}
+
 // ---------------------------------------------------------------------------
 // LoadEntries — eager name loading; columns deferred to ReloadEntry
 // ---------------------------------------------------------------------------
@@ -274,6 +310,72 @@ void OracleTableSet::LoadEntries(ClientContext &context, OracleTransaction &tran
 		// (wrong base class) leading to UB and GetStorage() crashes.
 		CreateEntryInternal(std::move(table_entry));
 		MarkAsStub(table_name);
+	}
+
+	if (catalog.load_columns) {
+		LoadColumnsBulk(transaction, level);
+	}
+}
+
+void OracleTableSet::LoadColumnsBulk(OracleTransaction &transaction, OraclePrivilegeLevel level) {
+	string cols_query, cons_query;
+	unordered_map<string, string> binds;
+	switch (level) {
+	case OraclePrivilegeLevel::USER:
+		cols_query = GetUserColumnsQuery();
+		cons_query = GetUserConstraintsQuery();
+		break;
+	case OraclePrivilegeLevel::DBA:
+		cols_query = GetDbaColumnsQuery();
+		cons_query = GetDbaConstraintsQuery();
+		binds = {{"owner", StringUtil::Upper(schema.oracle_name)}};
+		break;
+	default: // ALL
+		cols_query = GetColumnsQuery();
+		cons_query = GetConstraintsQuery();
+		binds = {{"owner", StringUtil::Upper(schema.oracle_name)}};
+		break;
+	}
+
+	auto col_result = transaction.Query(MakeSchemaWideQuery(cols_query), binds);
+	if (!col_result || col_result->Count() == 0) {
+		return;
+	}
+	auto con_result = transaction.Query(MakeSchemaWideQuery(cons_query), binds);
+	OracleResult empty_con;
+	auto &con_ref = con_result ? *con_result : empty_con;
+
+	// constraint rows per table (the order of the two result sets does not have to line up)
+	case_insensitive_map_t<vector<idx_t>> constraint_rows;
+	for (idx_t row = 0; row < con_ref.Count(); row++) {
+		constraint_rows[con_ref.GetString(row, 0)].push_back(row);
+	}
+
+	// column rows are ordered by table, then by column id
+	idx_t col_rows = col_result->Count();
+	idx_t start = 0;
+	while (start < col_rows) {
+		auto table_name = col_result->GetString(start, 1);
+		idx_t end = start + 1;
+		while (end < col_rows && col_result->GetString(end, 1) == table_name) {
+			end++;
+		}
+		auto table_info = make_uniq<OracleTableInfo>(schema, table_name);
+		if (!col_result->IsNull(start, 2)) {
+			table_info->approx_num_rows = (idx_t)col_result->GetInt64(start, 2);
+		}
+		for (idx_t row = start; row < end; row++) {
+			AddColumn(*col_result, row, *table_info);
+		}
+		auto constraints = constraint_rows.find(table_name);
+		if (constraints != constraint_rows.end()) {
+			AddUniqueConstraints(con_ref, constraints->second, *table_info);
+		}
+		auto table_entry = make_shared_ptr<OracleTableEntry>(
+		    static_cast<Catalog &>(catalog), static_cast<SchemaCatalogEntry &>(schema), *table_info);
+		CreateEntryInternal(std::move(table_entry));
+		stub_names.erase(table_name);
+		start = end;
 	}
 }
 
@@ -328,26 +430,13 @@ unique_ptr<OracleTableInfo> OracleTableSet::GetTableInfo(OracleTransaction &tran
 	}
 
 	// Add constraints
-	case_insensitive_map_t<vector<string>> pk_cols;
-	case_insensitive_map_t<string> con_types;
 	OracleResult empty_con;
 	auto &con_ref = con_result ? *con_result : empty_con;
+	vector<idx_t> con_row_ids;
 	for (idx_t row = 0; row < con_rows; row++) {
-		auto con_name = con_ref.GetString(row, 1);
-		auto con_type = con_ref.GetString(row, 2);
-		auto col_name = con_ref.GetString(row, 3);
-		pk_cols[con_name].push_back(col_name);
-		con_types[con_name] = con_type;
+		con_row_ids.push_back(row);
 	}
-	for (auto &entry : pk_cols) {
-		bool is_pk = (con_types[entry.first] == "P");
-		vector<Identifier> constraint_columns;
-		for (auto &column_name : entry.second) {
-			constraint_columns.push_back(Identifier(column_name));
-		}
-		table_info->create_info->constraints.push_back(
-		    make_uniq<UniqueConstraint>(std::move(constraint_columns), is_pk));
-	}
+	AddUniqueConstraints(con_ref, con_row_ids, *table_info);
 	return table_info;
 }
 

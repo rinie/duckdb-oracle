@@ -30,7 +30,7 @@ public:
 	                        string schema_to_load,
 	                        OracleIsolationLevel isolation_level,
 	                        OraclePrivilegeLevel privilege_level,
-	                        ClientContext &context);
+	                        ClientContext &context, bool load_columns_p = false);
 	~OracleCatalog();
 
 	string connection_string;
@@ -38,6 +38,8 @@ public:
 	AccessMode access_mode;
 	OracleIsolationLevel isolation_level;
 	OraclePrivilegeLevel privilege_level;
+	//! Fill in the columns of every table when a schema is listed (ATTACH option LOAD_COLUMNS)
+	bool load_columns;
 
 public:
 	void Initialize(bool load_builtin) override;
