@@ -68,28 +68,44 @@ static unique_ptr<SecretEntry> GetSecret(ClientContext &context,
 	return secret_entry;
 }
 
+static string SecretValue(const KeyValueSecret &secret, const string &key) {
+	auto value = secret.TryGetValue(Identifier(key));
+	return value.IsNull() ? string() : value.ToString();
+}
+
+//! user/password@connectString from a secret; user and password may both be left out (external authentication)
+static string SecretToConnectionString(const string &secret_name, const KeyValueSecret &secret) {
+	string user = SecretValue(secret, "user");
+	string password = SecretValue(secret, "password");
+	string connect_string = SecretValue(secret, "connectString");
+	if (connect_string.empty()) {
+		throw BinderException("Oracle secret \"%s\" has no connectString", secret_name);
+	}
+	if (user.empty() != password.empty()) {
+		throw BinderException("Oracle secret \"%s\" must have both user and password, or neither", secret_name);
+	}
+	return user + "/" + password + "@" + connect_string;
+}
+
 string OracleCatalog::GetConnectionString(ClientContext &context,
                                            const string &attach_path,
                                            string secret_name) {
-	string connection_string = attach_path;
 	bool explicit_secret = !secret_name.empty();
 	if (!explicit_secret) {
+		// the default secret only fills in an empty connection string
+		if (!attach_path.empty()) {
+			return attach_path;
+		}
 		secret_name = "__default_oracle";
 	}
 	auto secret_entry = GetSecret(context, secret_name);
 	if (secret_entry) {
-		const auto &kv_secret = dynamic_cast<const KeyValueSecret &>(*secret_entry->secret);
-		string user = kv_secret.TryGetValue("user").ToString();
-		string password = kv_secret.TryGetValue("password").ToString();
-		string conn_str = kv_secret.TryGetValue("connectString").ToString();
-		if (!user.empty() && !password.empty()) {
-			// Reconstruct as user/password@conn_str
-			connection_string = user + "/" + password + "@" + conn_str;
-		}
-	} else if (explicit_secret) {
+		return SecretToConnectionString(secret_name, dynamic_cast<const KeyValueSecret &>(*secret_entry->secret));
+	}
+	if (explicit_secret) {
 		throw BinderException("Secret with name \"%s\" not found", secret_name);
 	}
-	return connection_string;
+	return attach_path;
 }
 
 void OracleCatalog::Initialize(bool load_builtin) {

@@ -50,6 +50,21 @@ user/password@MYDB
 user/password@//host:1521/service?connect_timeout=10
 ```
 
+## Secrets
+
+A DuckDB secret keeps the credentials out of the connection string and the query history:
+
+```sql
+CREATE SECRET my_oracle (TYPE oracle, user 'scott', password 'tiger', connectString '//myhost:1521/MYSERVICE');
+ATTACH '' AS mydb (TYPE oracle, SECRET my_oracle);
+```
+
+- `connectString` is required. `user` and `password` must be given together; leave both out for external authentication (for example an Oracle wallet)
+- A secret named `__default_oracle` is used by every `ATTACH` that has an **empty** connection string and no `SECRET` option. An `ATTACH` with a connection string always uses that string
+- `CREATE PERSISTENT SECRET` keeps the secret across sessions, in an unencrypted file in `~/.duckdb/stored_secrets`
+- `duckdb_secrets()` shows the password as `redacted`, and connection errors show `user@connectString` without the password
+- Secrets only work with `ATTACH`; the table functions below take the connection string itself
+
 ## ATTACH options
 
 ```sql

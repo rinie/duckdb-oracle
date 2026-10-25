@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.0.4 (2026-10-25) — DuckDB 2.0.0
+
+### Fixes
+
+- A secret without a `connectString`, or with only one of `user` and `password`, is refused at `ATTACH` with a clear message. Before, a missing password was sent as the text `NULL` and a missing user made the extension fall back to the `ATTACH` string
+- The default secret `__default_oracle` is only used when the `ATTACH` connection string is empty; before it silently replaced an explicit connection string
+- Connection errors show `user@connectString` instead of the `ATTACH` string, which was empty with a secret and contained the password otherwise
+- `CREATE SECRET` no longer lists the unusable alias `username` in the code (only `user` was ever accepted)
+
+### Documentation
+
+- README: new "Secrets" section
+
+---
+
 ## Unreleased
 
 ### Documentation
