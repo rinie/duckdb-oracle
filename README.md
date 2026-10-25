@@ -83,6 +83,30 @@ By default a schema listing only fetches table and view names, so attaching and 
 
 With `LOAD_COLUMNS true` the extension fetches the columns and primary/unique keys of every table and view in the schema with two bulk queries when the schema is first listed, so all of those show every table and view, including the columns of views. This makes the first listing slower on schemas with many tables or columns. Tables the bulk query cannot see are still listed by name and loaded on first use.
 
+## Table functions
+
+Besides `ATTACH`, the extension has table functions that take the connection string themselves (`'user/password@host:1521/service'`, see above). They open their own Oracle connection, so they do not see uncommitted changes of an attached database, and they do not use secrets or the `READ_ONLY` flag.
+
+| Function | Description |
+|----------|-------------|
+| `oracle_query(conn, sql)` | Runs a `SELECT` and returns the result with the real column names and types (mapped like an attached table). The statement is described first, so a query without rows still returns its columns. Duplicate column names get `_1`, `_2`, ... A trailing semicolon is ignored. Statements without result columns are refused, use `oracle_execute` |
+| `oracle_execute(conn, sql)` | Runs one statement (DML or DDL), commits, and returns `OK` |
+| `oracle_scan(conn, schema, table)` | Reads one table |
+| `oracle_scan_pushdown(conn, schema, table)` | Reads one table and sends `WHERE` filters to Oracle (a filter that cannot be written as Oracle SQL raises an error) |
+| `oracle_attach(conn, [source_schema, sink_schema, overwrite, filter_pushdown])` | Creates a DuckDB view with `oracle_scan` (or `oracle_scan_pushdown`) for every table of one schema, by default the connected user's schema into `main` |
+| `oracle_clear_cache()` | Forgets the table and column lists that attached databases have cached |
+
+```sql
+-- real names and types, usable in joins like any other table
+SELECT * FROM oracle_query('user/password@host:1521/service',
+    'SELECT department_id, count(*) AS employees FROM hr.employees GROUP BY department_id');
+
+-- DDL and DML (committed immediately)
+SELECT * FROM oracle_execute('user/password@host:1521/service', 'CREATE INDEX emp_name_ix ON hr.employees(last_name)');
+```
+
+Oracle's unconstrained `NUMBER` (also the result of `COUNT(*)` or `1 + 1`) comes back as `DOUBLE`. Use `CAST(... AS NUMBER(18))` in the Oracle query to get an integer.
+
 ## Extension options
 
 | Option | Default | Description |
