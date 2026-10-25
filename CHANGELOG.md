@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Performance
+
+- Data dictionary queries (table names, columns, constraints) now fetch 2000 rows per network round trip instead of ODPI-C's default of 100, which matters most for the bulk queries of `LOAD_COLUMNS` and for remote databases
+- The `LOAD_COLUMNS` column query reads the column dictionary view once and takes the table/view distinction from the objects view, instead of reading it twice. If it fails for any reason the previous (per-table) query is used instead
+- `ora_debug_show_queries` also prints the row count and time of data dictionary queries
+
+### Fixes
+
+- With `LOAD_COLUMNS`, views are now listed with their columns by `SHOW ALL TABLES`, `duckdb_columns()` and `information_schema.columns`; before they were missing from `SHOW ALL TABLES`. `duckdb_tables()` still lists base tables only
+
 ### Features
 
 - New `LOAD_COLUMNS` ATTACH option (default `false`): fetches the columns and key constraints of every table with two bulk queries when a schema is first listed, so `SHOW ALL TABLES`, `duckdb_columns()` and `information_schema.columns` show all tables instead of only those used so far

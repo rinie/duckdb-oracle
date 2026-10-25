@@ -1,4 +1,5 @@
 #include "storage/oracle_table_set.hpp"
+#include "duckdb/common/printer.hpp"
 #include "storage/oracle_catalog.hpp"
 #include "storage/oracle_transaction.hpp"
 #include "storage/oracle_schema_entry.hpp"
@@ -267,6 +268,49 @@ static string MakeSchemaWideQuery(string query) {
 	return query;
 }
 
+//! Column query for a whole schema. Same 11-column layout as GetColumnsQuery(), ordered by table, then column.
+//! It reads the (expensive) column dictionary view once and takes the table/view distinction from the (cheap)
+//! objects view, instead of joining the column view once to the tables view and once to the views view.
+static string GetSchemaColumnsQuery(OraclePrivilegeLevel level) {
+	string columns_view, objects_view, tables_view, owner_filter, owner_join, owner_join_tables;
+	switch (level) {
+	case OraclePrivilegeLevel::USER:
+		columns_view = "user_tab_columns";
+		objects_view = "user_objects";
+		tables_view = "user_tables";
+		owner_filter = "";
+		owner_join = "";
+		owner_join_tables = "";
+		break;
+	case OraclePrivilegeLevel::DBA:
+		columns_view = "dba_tab_columns";
+		objects_view = "dba_objects";
+		tables_view = "dba_tables";
+		owner_filter = "WHERE c.owner = :owner";
+		owner_join = "o.owner = c.owner AND ";
+		owner_join_tables = "t.owner = c.owner AND ";
+		break;
+	default:
+		columns_view = "all_tab_columns";
+		objects_view = "all_objects";
+		tables_view = "all_tables";
+		owner_filter = "WHERE c.owner = :owner";
+		owner_join = "o.owner = c.owner AND ";
+		owner_join_tables = "t.owner = c.owner AND ";
+		break;
+	}
+	string owner_expr = level == OraclePrivilegeLevel::USER ? "LOWER(USER)" : "LOWER(c.owner)";
+	return "SELECT " + owner_expr + ", LOWER(c.table_name), NVL(t.num_rows, 0) AS num_rows,\n" +
+	       "       LOWER(c.column_name), c.data_type, c.data_length, c.data_precision, c.data_scale,\n" +
+	       "       c.nullable, CASE o.object_type WHEN 'VIEW' THEN 'VIEW' ELSE 'BASE TABLE' END AS table_type,\n" +
+	       "       c.column_id\n" +
+	       "FROM " + columns_view + " c\n" +
+	       "JOIN " + objects_view + " o ON " + owner_join + "o.object_name = c.table_name\n" +
+	       "                  AND o.object_type IN ('TABLE', 'VIEW')\n" +
+	       "LEFT JOIN " + tables_view + " t ON " + owner_join_tables + "t.table_name = c.table_name\n" +
+	       owner_filter + "\n" + "ORDER BY 2, 11\n";
+}
+
 // ---------------------------------------------------------------------------
 // LoadEntries — eager name loading; columns deferred to ReloadEntry
 // ---------------------------------------------------------------------------
@@ -337,7 +381,17 @@ void OracleTableSet::LoadColumnsBulk(OracleTransaction &transaction, OraclePrivi
 		break;
 	}
 
-	auto col_result = transaction.Query(MakeSchemaWideQuery(cols_query), binds);
+	unique_ptr<OracleResult> col_result;
+	try {
+		col_result = transaction.Query(GetSchemaColumnsQuery(level), binds);
+	} catch (std::exception &ex) {
+		// Never let the speed-optimised query break LOAD_COLUMNS: use the per-table query without its filter
+		if (OracleConnection::DebugPrintQueries()) {
+			Printer::Print(string("-- LOAD_COLUMNS: schema-wide column query failed (") + ex.what() +
+			               "), falling back\n");
+		}
+		col_result = transaction.Query(MakeSchemaWideQuery(cols_query), binds);
+	}
 	if (!col_result || col_result->Count() == 0) {
 		return;
 	}
