@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.0.1 (2026-10-25) — DuckDB 2.0.0
 
 ### Fixes (found with a scratch-table test on Oracle 19c)
 
@@ -8,7 +8,7 @@
 - Selecting from a table right after `CREATE TABLE` in the same session raised an internal DuckDB error (`Attempted to access index 0 within vector of size 0`) that invalidated the database. The new table is now read back from Oracle after creation
 - A schema listing no longer replaces an already loaded table by a name-only entry (which made `duckdb_columns()` / `SHOW ALL TABLES` lose tables that had just been used)
 - `INSERT`/`UPDATE` of `TIMESTAMP WITH TIME ZONE` (`ORA-01843`) and `INTERVAL DAY TO SECOND` (`ORA-01867`) values now use proper Oracle literals instead of strings that depend on NLS settings; numbers are sent as numeric literals, not strings
-- Text longer than 4000 bytes is now inserted as a concatenation of `TO_CLOB(...)` pieces instead of failing with `ORA-01704` (untested on Oracle)
+- Text longer than 4000 bytes is now inserted as a concatenation of `TO_CLOB(...)` pieces instead of failing with `ORA-01704` (checked with a 5000 character value)
 - `MERGE` with an `UPDATE`/`DELETE` action raised an internal DuckDB error (`Attempted to access index 100 within vector of size 4`) that invalidated the database, because the rows were handed to the UPDATE operator in the wrong layout. MERGE now uses DuckDB's generic merge planning on top of the regular INSERT/UPDATE/DELETE operators
 - `ora_debug_show_queries` now also prints the SQL of table scans (including the pushed-down `WHERE` clause)
 
