@@ -19,7 +19,7 @@ INSERT INTO ora.claude_bulk VALUES
  (2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL),
  (3, '', -0.01, 1.5e100, DATE '0001-01-01', TIMESTAMP '1999-12-31 23:59:59', TIMESTAMPTZ '2026-01-01 00:00:00+00',
   INTERVAL '-1 day -00:00:01', false, '\xDE\xAD\xBE\xEF'::BLOB, 'unicode äöü € ''quoted''');
-SELECT id, s, dec, dbl, dbl = 0.1::DOUBLE + 0.2::DOUBLE AS dbl_exact, d, ts, tstz, iv, flag, length(bl) AS bl_len, length(big) AS big_len
+SELECT id, s, dec, dbl, dbl = 0.1::DOUBLE + 0.2::DOUBLE AS dbl_exact, d, ts, tstz, iv, flag, octet_length(bl) AS bl_len, length(big) AS big_len
 FROM ora.claude_bulk ORDER BY id;
 
 -- 2. A value that cannot be bound (40000 characters) falls back to literals for that chunk and still works.
@@ -28,8 +28,8 @@ INSERT INTO ora.claude_bulk(id, big) VALUES (4, repeat('y', 40000));
 SELECT id, length(big) AS big_len FROM ora.claude_bulk WHERE id = 4;
 DELETE FROM ora.claude_bulk WHERE id = 4;
 
--- 3. A failing batch must fail as a whole. Expected: an ORA-01438 (value larger than precision) error and still 3 rows.
-INSERT INTO ora.claude_bulk(id, dec) VALUES (10, 1.00), (11, 99999999999.99);
+-- 3. A batch with an unsupported value must fail as a whole. Expected: an error about the month component and still 3 rows.
+INSERT INTO ora.claude_bulk(id, iv) VALUES (20, INTERVAL '1 day'), (21, INTERVAL '1 month');
 SELECT count(*) AS rows_left FROM ora.claude_bulk;   -- 3
 
 SET ora_debug_show_queries = false;
@@ -40,12 +40,12 @@ INSERT INTO ora.claude_bulk(id, s, dec, dbl, d, ts)
 SELECT 1000 + i, 'row ' || i, i / 100.0, i * 1.5, DATE '2020-01-01' + (i % 1000)::INTEGER,
        TIMESTAMP '2020-01-01' + to_seconds(i)
 FROM range(100000) t(i);
-SELECT count(*) AS total, min(id), max(id) FROM ora.claude_bulk;   -- 100003, 1, 101999
+SELECT count(*) AS total, min(id), max(id) FROM ora.claude_bulk;   -- 100003, 1, 100999
 
 -- 5. UPDATE of 50000 rows (one array-bound UPDATE per chunk).
 UPDATE ora.claude_bulk SET s = 'upd ' || id, dec = dec + 1 WHERE id >= 1000 AND id < 51000;
 SELECT s, dec FROM ora.claude_bulk WHERE id IN (1000, 1001, 50999, 51000) ORDER BY id;
--- Expected: 'upd 1000' 1.00, 'upd 1001' 1.01, 'upd 50999' 510.99, 'row 50000' 500.00
+-- Expected: 'upd 1000' 1.00, 'upd 1001' 1.01, 'upd 50999' 500.99, 'row 50000' 500.00
 
 -- 6. DELETE of 10000 rows.
 DELETE FROM ora.claude_bulk WHERE id >= 91000;
