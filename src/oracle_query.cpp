@@ -111,18 +111,21 @@ static unique_ptr<FunctionData> OracleQueryBind(ClientContext &context, TableFun
 		ThrowOracleError("prepare", result->query);
 	}
 	uint32_t num_cols = 0;
+	static const char *NOT_A_QUERY = "oracle_query only runs queries that return columns; use oracle_execute for "
+	                                 "INSERT, UPDATE, DELETE and DDL statements";
 	if (dpiStmt_execute(stmt, DPI_MODE_EXEC_DESCRIBE_ONLY, &num_cols) < 0) {
-		try {
-			ThrowOracleError("describe", result->query);
-		} catch (...) {
-			dpiStmt_release(stmt);
-			throw;
+		dpiErrorInfo error_info;
+		dpiContext_getError(OracleUtils::GetOrCreateContext(), &error_info);
+		dpiStmt_release(stmt);
+		// describing a statement that is not a query fails with ORA-24333 (zero iteration count)
+		if (error_info.code == 24333) {
+			throw InvalidInputException(NOT_A_QUERY);
 		}
+		throw IOException("Oracle describe failed for query \"%s\": %s", result->query, string(error_info.message));
 	}
 	if (num_cols == 0) {
 		dpiStmt_release(stmt);
-		throw InvalidInputException("oracle_query only runs queries that return columns; use oracle_execute for "
-		                            "INSERT, UPDATE, DELETE and DDL statements");
+		throw InvalidInputException(NOT_A_QUERY);
 	}
 
 	case_insensitive_set_t used_names;
