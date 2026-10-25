@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+- `oracle_query` returns the real column names and types (numbers, dates, timestamps with time zone, intervals, CLOB, RAW, ...) instead of `column0, column1, ...` as VARCHAR, and keeps the columns when the query returns no rows
+- `oracle_query` sends the statement once: it used to run at bind time and again at execution, so a DML statement ran twice and was never committed. It now accepts queries only (use `oracle_execute` for DML and DDL) and ignores a trailing semicolon
+- `INSERT INTO ... SELECT ... FROM oracle_query(...)` into an attached Oracle database no longer reads the scan data as the wrong type
+
+---
+
 ## v2.0.2 (2026-10-25) — DuckDB 2.0.0
 
 ### Performance

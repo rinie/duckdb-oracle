@@ -179,8 +179,7 @@ void OracleCatalog::ClearCache() {
 }
 
 bool OracleCatalog::IsOracleScan(const string &name) {
-	return name == "oracle_scan" || name == "oracle_scan_pushdown" ||
-	       name == "oracle_query";
+	return name == "oracle_scan" || name == "oracle_scan_pushdown";
 }
 
 void OracleCatalog::MaterializeOracleScans(PhysicalOperator &op) {
