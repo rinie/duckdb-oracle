@@ -81,6 +81,9 @@ private:
 	//! harmless: they are never returned because the underlying OracleTableSet no
 	//! longer contains them.
 	mutable std::unordered_map<std::string, unique_ptr<OracleViewEntry>> view_stub_cache_;
+
+	//! The (cached) metadata-only view entry for an Oracle view, with its columns once they are loaded
+	OracleViewEntry &GetViewStub(OracleTableEntry &view);
 };
 
 } // namespace duckdb

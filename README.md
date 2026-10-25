@@ -70,7 +70,7 @@ By default only the connected user's own schema is visible. To browse tables own
 
 By default a schema listing only fetches table and view names, so attaching and browsing is fast even for large schemas. A table's columns are fetched the first time it is used. Anything that needs columns for all tables, such as `SHOW ALL TABLES`, `duckdb_columns()` and `information_schema.columns`, therefore only sees the tables used so far.
 
-With `LOAD_COLUMNS true` the extension fetches the columns and primary/unique keys of every table in the schema with two bulk queries when the schema is first listed, so all of those show every table. This makes the first listing slower on schemas with many tables or columns. Tables the bulk query cannot see are still listed by name and loaded on first use.
+With `LOAD_COLUMNS true` the extension fetches the columns and primary/unique keys of every table and view in the schema with two bulk queries when the schema is first listed, so all of those show every table and view, including the columns of views. This makes the first listing slower on schemas with many tables or columns. Tables the bulk query cannot see are still listed by name and loaded on first use.
 
 ## Extension options
 
@@ -84,6 +84,8 @@ With `LOAD_COLUMNS true` the extension fetches the columns and primary/unique ke
 -- Show each Oracle query that gets executed
 SET ora_debug_show_queries = true;
 ```
+
+For the data dictionary queries (table names, columns, constraints) it also prints the number of rows and the time each took, which shows where time goes on a large schema.
 
 ## Debugging with ODPI-C trace logging
 

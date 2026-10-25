@@ -151,16 +151,41 @@ void OracleSchemaEntry::Alter(CatalogTransaction transaction, AlterInfo &info) {
 	}
 }
 
+OracleViewEntry &OracleSchemaEntry::GetViewStub(OracleTableEntry &view) {
+	auto &stub = view_stub_cache_[view.name.GetIdentifierName()];
+	if (!stub) {
+		stub = make_uniq<OracleViewEntry>(catalog, *this, view.name.GetIdentifierName());
+	}
+	// Give the stub the columns of the view as soon as they are known (they are loaded lazily)
+	auto &columns = view.GetColumns();
+	if (columns.LogicalColumnCount() > 0 && !stub->GetColumnInfo()) {
+		vector<LogicalType> types;
+		vector<Identifier> names;
+		for (auto &column : columns.Logical()) {
+			types.push_back(column.GetType());
+			names.push_back(column.GetName());
+		}
+		stub->UpdateBinding(types, names);
+	}
+	return *stub;
+}
+
 void OracleSchemaEntry::Scan(ClientContext &context, CatalogType type,
                                const std::function<void(CatalogEntry &)> &callback) {
 	auto &oracle_transaction = OracleTransaction::Get(context, catalog);
 
 	if (type == CatalogType::TABLE_ENTRY) {
-		// duckdb_tables() expects TABLE_ENTRY entries only (no views).
-		// Filter out Oracle view stubs so they don't appear as "BASE TABLE".
+		// Like DuckDB's own schemas, a TABLE_ENTRY scan returns views too: duckdb_columns() only scans
+		// TABLE_ENTRY and needs the views here to list their columns (SHOW ALL TABLES). duckdb_tables()
+		// skips entries that are not of type TABLE_ENTRY, so views do not show up there as "BASE TABLE".
+		// A view is only passed on once its columns are known, otherwise it would show up with a
+		// placeholder column.
 		tables.Scan(context, oracle_transaction, [&](CatalogEntry &entry) {
-			if (!entry.Cast<OracleTableEntry>().is_view) {
+			auto &table_entry = entry.Cast<OracleTableEntry>();
+			if (!table_entry.is_view) {
 				callback(entry);
+			} else if (table_entry.GetColumns().LogicalColumnCount() > 0) {
+				callback(GetViewStub(table_entry));
 			}
 		});
 		return;
@@ -177,12 +202,9 @@ void OracleSchemaEntry::Scan(ClientContext &context, CatalogType type,
 		// the stubs must be heap-allocated and outlive this call.  We cache them
 		// in view_stub_cache_ (lifetime == schema entry lifetime).
 		tables.Scan(context, oracle_transaction, [&](CatalogEntry &entry) {
-			if (entry.Cast<OracleTableEntry>().is_view) {
-				auto &stub = view_stub_cache_[entry.name.GetIdentifierName()];
-				if (!stub) {
-					stub = make_uniq<OracleViewEntry>(catalog, *this, entry.name.GetIdentifierName());
-				}
-				callback(*stub);
+			auto &table_entry = entry.Cast<OracleTableEntry>();
+			if (table_entry.is_view) {
+				callback(GetViewStub(table_entry));
 			}
 		});
 		return;

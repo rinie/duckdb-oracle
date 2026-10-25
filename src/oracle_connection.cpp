@@ -60,7 +60,8 @@ OracleConnection OracleConnection::Open(const string &dsn, const string &attach_
 // ---------------------------------------------------------------------------
 
 unique_ptr<OracleResult> OracleConnection::ExecuteQuery(const string &query,
-                                                         const unordered_map<string, string> &binds) {
+                                                         const unordered_map<string, string> &binds,
+                                                         uint32_t fetch_array_size) {
 	auto conn = GetConn();
 	dpiStmt *stmt = nullptr;
 	dpiErrorInfo error_info;
@@ -90,6 +91,12 @@ unique_ptr<OracleResult> OracleConnection::ExecuteQuery(const string &query,
 			throw IOException("Oracle bind by name failed for ':%s': %s", name,
 			                  string(error_info.message));
 		}
+	}
+
+	if (fetch_array_size > 0) {
+		// Best effort: fewer round trips for large results. On failure ODPI-C keeps its defaults.
+		dpiStmt_setFetchArraySize(stmt, fetch_array_size);
+		dpiStmt_setPrefetchRows(stmt, fetch_array_size);
 	}
 
 	uint32_t num_cols = 0;
@@ -249,7 +256,17 @@ unique_ptr<OracleResult> OracleConnection::TryQuery(optional_ptr<ClientContext> 
 		Printer::Print(debug_line + "\n");
 	}
 	try {
-		return ExecuteQuery(query, binds);
+		// Data dictionary queries have narrow rows and can return tens of thousands of them
+		static constexpr uint32_t METADATA_FETCH_ARRAY_SIZE = 2000;
+		auto start = std::chrono::steady_clock::now();
+		auto result = ExecuteQuery(query, binds, METADATA_FETCH_ARRAY_SIZE);
+		if (DebugPrintQueries()) {
+			auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+			    std::chrono::steady_clock::now() - start);
+			Printer::Print(StringUtil::Format("-- %llu rows in %llu ms\n", (unsigned long long)result->Count(),
+			                                  (unsigned long long)elapsed.count()));
+		}
+		return result;
 	} catch (std::exception &ex) {
 		if (error_message) {
 			*error_message = ex.what();

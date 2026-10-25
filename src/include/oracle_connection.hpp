@@ -86,8 +86,11 @@ public:
 
 private:
 	//! Execute a query (with optional named bind params) and materialise results.
+	//! A non-zero fetch_array_size makes ODPI-C fetch (and prefetch) that many rows per round trip
+	//! instead of its default of 100.
 	unique_ptr<OracleResult> ExecuteQuery(const string &query,
-	                                       const unordered_map<string, string> &binds = {});
+	                                       const unordered_map<string, string> &binds = {},
+	                                       uint32_t fetch_array_size = 0);
 
 	shared_ptr<OwnedOracleConnection> connection;
 	string dsn;
