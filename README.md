@@ -4,7 +4,7 @@ A DuckDB extension that attaches Oracle databases, modelled after `duckdb-postgr
 
 ## Requirements
 
-- Oracle Instant Client (or a full Oracle client installation) in your `PATH` / `LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH`
+- Oracle Client **19c or newer** (Instant Client or a full Oracle client installation) in your `PATH` / `LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH`. On Linux and macOS the unversioned `libclntsh.so` / `libclntsh.dylib` symlink must exist in that directory (ODPI-C 26 no longer falls back to the versioned library name)
 - The `oracle.duckdb_extension` binary for your platform
 
 ## Quick start
