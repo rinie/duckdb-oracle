@@ -47,7 +47,24 @@ public:
 
 	// Build INSERT INTO ... VALUES (...) statement
 	string BuildInsertSQL(DataChunk &chunk) const;
+	// Build INSERT INTO ... VALUES (:1, :2, ...) for array binding
+	string BuildBatchInsertSQL() const;
 };
+
+string OracleInsertGlobalState::BuildBatchInsertSQL() const {
+	string sql = "INSERT INTO " + OracleUtils::QuoteIdentifier(table.oracle_schema_name) + "." +
+	             OracleUtils::QuoteIdentifier(table.name.GetIdentifierName()) + "(";
+	string binds;
+	for (idx_t c = 0; c < insert_column_names.size(); c++) {
+		if (c > 0) {
+			sql += ", ";
+			binds += ", ";
+		}
+		sql += OracleUtils::QuoteIdentifier(insert_column_names[c]);
+		binds += ":" + std::to_string(c + 1);
+	}
+	return sql + ") VALUES(" + binds + ")";
+}
 
 string OracleInsertGlobalState::BuildInsertSQL(DataChunk &chunk) const {
 	auto &col_names = insert_column_names;
@@ -113,9 +130,19 @@ SinkResultType OracleInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 	auto &transaction = OracleTransaction::Get(context.client, gstate.table.catalog);
 	auto &connection = transaction.GetConnection();
 
-	auto base_sql = gstate.BuildInsertSQL(chunk);
 	idx_t num_cols = gstate.insert_column_names.size();
 
+	// one array-bound statement per chunk; literals only for values that cannot be bound
+	if (chunk.ColumnCount() == num_cols) {
+		auto batch_sql = gstate.BuildBatchInsertSQL();
+		if (connection.ExecuteBatch(context.client, batch_sql, chunk.GetTypes(), chunk.size(),
+		                            [&](idx_t c, idx_t row) { return chunk.GetValue(c, row); })) {
+			gstate.insert_count += chunk.size();
+			return SinkResultType::NEED_MORE_INPUT;
+		}
+	}
+
+	auto base_sql = gstate.BuildInsertSQL(chunk);
 	for (idx_t row = 0; row < chunk.size(); row++) {
 		string sql = base_sql;
 		for (idx_t c = 0; c < num_cols; c++) {

@@ -34,6 +34,34 @@ SinkResultType OracleUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 	// ROWID is the last column
 	idx_t ncols = columns.size();
 
+	// one array-bound statement per chunk; rows without a ROWID match nothing
+	{
+		string batch_sql = "UPDATE " + OracleUtils::QuoteIdentifier(oracle_table.oracle_schema_name) + "." +
+		                   OracleUtils::QuoteIdentifier(oracle_table.name.GetIdentifierName()) + " SET ";
+		vector<LogicalType> types;
+		for (idx_t c = 0; c < ncols; c++) {
+			auto &col = oracle_table.GetColumns().GetColumn(columns[c]);
+			if (c > 0) batch_sql += ", ";
+			batch_sql += OracleUtils::QuoteIdentifier(col.Name().GetIdentifierName()) + " = :" + std::to_string(c + 1);
+			types.push_back(chunk.data[c].GetType());
+		}
+		batch_sql += " WHERE ROWID = :" + std::to_string(ncols + 1);
+		types.push_back(LogicalType::VARCHAR);
+		if (connection.ExecuteBatch(context.client, batch_sql, types, chunk.size(), [&](idx_t c, idx_t row) {
+			    if (c < ncols) {
+				    return chunk.GetValue(c, row);
+			    }
+			    auto rowid_val = chunk.GetValue(ncols, row);
+			    if (rowid_val.IsNull()) {
+				    return Value(LogicalType::VARCHAR);
+			    }
+			    return Value(transaction.LookupRowid(rowid_val.GetValue<int64_t>()));
+		    })) {
+			gstate.update_count += chunk.size();
+			return SinkResultType::NEED_MORE_INPUT;
+		}
+	}
+
 	for (idx_t row = 0; row < chunk.size(); row++) {
 		auto rowid_val = chunk.GetValue(ncols, row); // ROWID index is after the updated cols
 		if (rowid_val.IsNull()) {

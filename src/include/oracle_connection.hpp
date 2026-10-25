@@ -12,6 +12,8 @@
 #include "duckdb/common/shared_ptr.hpp"
 #include "duckdb/common/unordered_map.hpp"
 
+#include <functional>
+
 namespace duckdb {
 class OracleSchemaEntry;
 class OracleTableEntry;
@@ -55,6 +57,13 @@ public:
 	unique_ptr<OracleResult> Query(optional_ptr<ClientContext> context,
 	                                const string &query,
 	                                const unordered_map<string, string> &binds);
+
+	//! Runs a DML statement once per row with array binding: row r of column c is bound to :c+1,
+	//! so a whole batch takes one round trip. `get_value(c, r)` supplies the values.
+	//! Returns false without executing anything when a value cannot be bound (unsupported type, text or
+	//! bytes above 32767 bytes, infinite dates, non-finite floats); the caller then falls back to literals.
+	bool ExecuteBatch(optional_ptr<ClientContext> context, const string &query, const vector<LogicalType> &types,
+	                  idx_t row_count, const std::function<Value(idx_t, idx_t)> &get_value);
 
 	void Commit();
 	void Rollback();

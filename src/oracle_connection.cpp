@@ -2,8 +2,13 @@
 #include "oracle_logging.hpp"
 #include "duckdb/common/shared_ptr.hpp"
 #include "duckdb/common/helper.hpp"
+#include "duckdb/common/types/date.hpp"
+#include "duckdb/common/types/time.hpp"
+#include "duckdb/common/types/timestamp.hpp"
+#include "duckdb/common/types/interval.hpp"
 
 #include <chrono>
+#include <cmath>
 
 namespace duckdb {
 
@@ -237,6 +242,259 @@ unique_ptr<OracleResult> OracleConnection::Query(optional_ptr<ClientContext> con
 
 void OracleConnection::Execute(optional_ptr<ClientContext> context, const string &query) {
 	Query(context, query);
+}
+
+// ---------------------------------------------------------------------------
+// Array binding
+// ---------------------------------------------------------------------------
+
+namespace {
+
+//! Longest text or byte value that is bound as a plain VARCHAR / RAW variable
+constexpr idx_t MAX_BIND_BYTES = 32767;
+
+struct BatchVars {
+	~BatchVars() {
+		for (auto var : vars) {
+			dpiVar_release(var);
+		}
+	}
+	vector<dpiVar *> vars;
+};
+
+[[noreturn]] void ThrowDpiError(const char *what) {
+	dpiErrorInfo error_info;
+	dpiContext_getError(OracleUtils::GetOrCreateContext(), &error_info);
+	throw IOException("Oracle %s failed: %s", what, string(error_info.message));
+}
+
+void SetTimestamp(dpiData &data, timestamp_t ts, int8_t tz_hour) {
+	int32_t y, mo, day, h, m, s, micros;
+	Date::Convert(Timestamp::GetDate(ts), y, mo, day);
+	Time::Convert(Timestamp::GetTime(ts), h, m, s, micros);
+	dpiData_setTimestamp(&data, (int16_t)y, (uint8_t)mo, (uint8_t)day, (uint8_t)h, (uint8_t)m, (uint8_t)s,
+	                     (uint32_t)micros * 1000, tz_hour, 0);
+}
+
+//! Creates the variable for one column and fills it. Returns false if a value cannot be bound.
+bool BindColumn(dpiConn *conn, const LogicalType &type, const vector<Value> &values, dpiVar *&var, dpiData *&data) {
+	dpiOracleTypeNum oracle_type;
+	dpiNativeTypeNum native_type;
+	uint32_t size = 0;
+	// text and bytes are sized for the longest value; empty text is NULL in Oracle anyway
+	vector<string> texts;
+
+	switch (type.id()) {
+	case LogicalTypeId::BOOLEAN:
+	case LogicalTypeId::TINYINT:
+	case LogicalTypeId::SMALLINT:
+	case LogicalTypeId::INTEGER:
+	case LogicalTypeId::BIGINT:
+	case LogicalTypeId::UTINYINT:
+	case LogicalTypeId::USMALLINT:
+	case LogicalTypeId::UINTEGER:
+		oracle_type = DPI_ORACLE_TYPE_NUMBER;
+		native_type = DPI_NATIVE_TYPE_INT64;
+		break;
+	case LogicalTypeId::UBIGINT:
+		oracle_type = DPI_ORACLE_TYPE_NUMBER;
+		native_type = DPI_NATIVE_TYPE_UINT64;
+		break;
+	case LogicalTypeId::FLOAT:
+	case LogicalTypeId::DOUBLE:
+	case LogicalTypeId::DECIMAL:
+	case LogicalTypeId::HUGEINT:
+	case LogicalTypeId::UHUGEINT:
+		// ODPI-C converts the decimal text itself, independent of the NLS settings
+		oracle_type = DPI_ORACLE_TYPE_NUMBER;
+		native_type = DPI_NATIVE_TYPE_BYTES;
+		break;
+	case LogicalTypeId::VARCHAR:
+	case LogicalTypeId::UUID:
+	case LogicalTypeId::BLOB:
+		oracle_type = type.id() == LogicalTypeId::BLOB ? DPI_ORACLE_TYPE_RAW : DPI_ORACLE_TYPE_VARCHAR;
+		native_type = DPI_NATIVE_TYPE_BYTES;
+		for (auto &val : values) {
+			string text;
+			if (!val.IsNull()) {
+				text = type.id() == LogicalTypeId::UUID ? val.ToString() : StringValue::Get(val);
+			}
+			if (text.size() > MAX_BIND_BYTES) {
+				return false;
+			}
+			size = MaxValue<uint32_t>(size, (uint32_t)text.size());
+			texts.push_back(std::move(text));
+		}
+		break;
+	case LogicalTypeId::DATE:
+		oracle_type = DPI_ORACLE_TYPE_DATE;
+		native_type = DPI_NATIVE_TYPE_TIMESTAMP;
+		break;
+	case LogicalTypeId::TIMESTAMP:
+		oracle_type = DPI_ORACLE_TYPE_TIMESTAMP;
+		native_type = DPI_NATIVE_TYPE_TIMESTAMP;
+		break;
+	case LogicalTypeId::TIMESTAMP_TZ:
+		oracle_type = DPI_ORACLE_TYPE_TIMESTAMP_TZ;
+		native_type = DPI_NATIVE_TYPE_TIMESTAMP;
+		break;
+	case LogicalTypeId::INTERVAL:
+		oracle_type = DPI_ORACLE_TYPE_INTERVAL_DS;
+		native_type = DPI_NATIVE_TYPE_INTERVAL_DS;
+		break;
+	default:
+		return false;
+	}
+
+	if (dpiConn_newVar(conn, oracle_type, native_type, (uint32_t)values.size(), size == 0 ? 1 : size, 1, 0, nullptr,
+	                   &var, &data) < 0) {
+		ThrowDpiError("bind variable creation");
+	}
+
+	for (idx_t row = 0; row < values.size(); row++) {
+		auto &val = values[row];
+		auto &target = data[row];
+		if (val.IsNull()) {
+			dpiData_setNull(&target);
+			continue;
+		}
+		switch (type.id()) {
+		case LogicalTypeId::BOOLEAN:
+			dpiData_setInt64(&target, BooleanValue::Get(val) ? 1 : 0);
+			break;
+		case LogicalTypeId::UBIGINT:
+			dpiData_setUint64(&target, val.GetValue<uint64_t>());
+			break;
+		case LogicalTypeId::TINYINT:
+		case LogicalTypeId::SMALLINT:
+		case LogicalTypeId::INTEGER:
+		case LogicalTypeId::BIGINT:
+		case LogicalTypeId::UTINYINT:
+		case LogicalTypeId::USMALLINT:
+		case LogicalTypeId::UINTEGER:
+			dpiData_setInt64(&target, val.GetValue<int64_t>());
+			break;
+		case LogicalTypeId::FLOAT:
+		case LogicalTypeId::DOUBLE:
+		case LogicalTypeId::DECIMAL:
+		case LogicalTypeId::HUGEINT:
+		case LogicalTypeId::UHUGEINT: {
+			if ((type.id() == LogicalTypeId::FLOAT || type.id() == LogicalTypeId::DOUBLE) &&
+			    !std::isfinite(val.GetValue<double>())) {
+				return false;
+			}
+			auto text = val.ToString();
+			if (dpiVar_setFromBytes(var, (uint32_t)row, text.data(), (uint32_t)text.size()) < 0) {
+				ThrowDpiError("number bind");
+			}
+			break;
+		}
+		case LogicalTypeId::VARCHAR:
+		case LogicalTypeId::UUID:
+		case LogicalTypeId::BLOB: {
+			auto &text = texts[row];
+			if (text.empty()) {
+				dpiData_setNull(&target);
+			} else if (dpiVar_setFromBytes(var, (uint32_t)row, text.data(), (uint32_t)text.size()) < 0) {
+				ThrowDpiError("text bind");
+			}
+			break;
+		}
+		case LogicalTypeId::DATE: {
+			auto date = DateValue::Get(val);
+			if (!date.IsFinite()) {
+				return false;
+			}
+			int32_t y, mo, day;
+			Date::Convert(date, y, mo, day);
+			dpiData_setTimestamp(&target, (int16_t)y, (uint8_t)mo, (uint8_t)day, 0, 0, 0, 0, 0, 0);
+			break;
+		}
+		case LogicalTypeId::TIMESTAMP:
+		case LogicalTypeId::TIMESTAMP_TZ: {
+			auto ts = val.GetValueUnsafe<timestamp_t>();
+			if (!ts.IsFinite()) {
+				return false;
+			}
+			// a TIMESTAMP WITH TIME ZONE holds a UTC instant
+			SetTimestamp(target, ts, 0);
+			break;
+		}
+		case LogicalTypeId::INTERVAL: {
+			auto interval = val.GetValueUnsafe<interval_t>();
+			if (interval.months != 0) {
+				throw InvalidInputException(
+				    "An INTERVAL with a month component cannot be stored in an Oracle INTERVAL DAY TO SECOND");
+			}
+			static constexpr int64_t MICROS_PER_DAY = 86400000000LL;
+			int64_t total = static_cast<int64_t>(interval.days) * MICROS_PER_DAY + interval.micros;
+			int32_t sign = total < 0 ? -1 : 1;
+			int64_t abs_total = total < 0 ? -total : total;
+			int64_t rest = abs_total % MICROS_PER_DAY;
+			dpiData_setIntervalDS(&target, sign * (int32_t)(abs_total / MICROS_PER_DAY),
+			                      sign * (int32_t)(rest / 3600000000LL), sign * (int32_t)(rest / 60000000LL % 60),
+			                      sign * (int32_t)(rest / 1000000LL % 60), sign * (int32_t)(rest % 1000000LL * 1000));
+			break;
+		}
+		default:
+			return false;
+		}
+	}
+	return true;
+}
+
+} // namespace
+
+bool OracleConnection::ExecuteBatch(optional_ptr<ClientContext> context, const string &query,
+                                    const vector<LogicalType> &types, idx_t row_count,
+                                    const std::function<Value(idx_t, idx_t)> &get_value) {
+	if (row_count == 0) {
+		return true;
+	}
+	lock_guard<mutex> guard(connection->connection_lock);
+	auto conn = GetConn();
+
+	BatchVars vars;
+	vector<Value> values(row_count);
+	for (idx_t c = 0; c < types.size(); c++) {
+		for (idx_t row = 0; row < row_count; row++) {
+			values[row] = get_value(c, row);
+		}
+		dpiVar *var = nullptr;
+		dpiData *data = nullptr;
+		bool bound = BindColumn(conn, types[c], values, var, data);
+		if (var) {
+			vars.vars.push_back(var);
+		}
+		if (!bound) {
+			return false;
+		}
+	}
+
+	if (DebugPrintQueries()) {
+		Printer::Print(StringUtil::Format("%s  -- %llu rows batched\n", query, (unsigned long long)row_count));
+	}
+
+	dpiStmt *stmt = nullptr;
+	if (dpiConn_prepareStmt(conn, 0, query.c_str(), (uint32_t)query.size(), nullptr, 0, &stmt) < 0) {
+		ThrowDpiError("prepare");
+	}
+	for (idx_t c = 0; c < vars.vars.size(); c++) {
+		if (dpiStmt_bindByPos(stmt, (uint32_t)(c + 1), vars.vars[c]) < 0) {
+			dpiErrorInfo error_info;
+			dpiContext_getError(OracleUtils::GetOrCreateContext(), &error_info);
+			dpiStmt_release(stmt);
+			throw IOException("Oracle bind failed for query \"%s\": %s", query, string(error_info.message));
+		}
+	}
+	if (dpiStmt_executeMany(stmt, DPI_MODE_EXEC_DEFAULT, (uint32_t)row_count) < 0) {
+		dpiErrorInfo error_info;
+		dpiContext_getError(OracleUtils::GetOrCreateContext(), &error_info);
+		dpiStmt_release(stmt);
+		throw IOException("Oracle execute failed for query \"%s\": %s", query, string(error_info.message));
+	}
+	dpiStmt_release(stmt);
+	return true;
 }
 
 // ---------------------------------------------------------------------------
