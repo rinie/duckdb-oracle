@@ -63,6 +63,8 @@ TableFunction OracleTableEntry::GetScanFunction(ClientContext &context,
 	result->schema_name = oracle_schema_name;
 	result->table_name = this->name.GetIdentifierName();
 	result->oracle_types = oracle_types;
+	// an entry created from DDL alone has no Oracle types: use defaults rather than reading past the end
+	result->oracle_types.resize(columns.LogicalColumnCount());
 	result->approx_num_rows = approx_num_rows;
 	result->requires_materialization = false;
 	result->can_use_main_thread = true;

@@ -7,6 +7,7 @@
 #include "duckdb/common/helper.hpp"
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
 #include "oracle_filter_pushdown.hpp"
+#include "duckdb/common/printer.hpp"
 #include "oracle_scanner.hpp"
 #include "oracle_result.hpp"
 #include "oracle_conversion.hpp"
@@ -46,6 +47,9 @@ public:
 		done = false;
 		auto conn = connection.GetConn();
 		dpiErrorInfo error_info;
+		if (OracleConnection::DebugPrintQueries()) {
+			Printer::Print(sql + "\n");
+		}
 		if (dpiConn_prepareStmt(conn, 0, sql.c_str(), (uint32_t)sql.size(),
 		                         nullptr, 0, &stmt) < 0) {
 			dpiContext_getError(OracleUtils::GetOrCreateContext(), &error_info);
@@ -61,6 +65,9 @@ public:
 			throw IOException("Oracle execute failed: %s (query: %s)",
 			                  string(error_info.message), sql);
 		}
+
+		// CLOB/BLOB columns are fetched as text/bytes instead of LOB locators
+		OracleUtils::DefineLobsAsBytes(stmt, num_cols);
 
 		// Cache query info for each column
 		col_info.resize(num_cols);

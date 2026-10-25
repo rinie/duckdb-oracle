@@ -344,6 +344,10 @@ void OracleTableSet::LoadEntries(ClientContext &context, OracleTransaction &tran
 	for (idx_t row = 0; row < result->Count(); row++) {
 		auto table_name = result->GetString(row, 0);
 		bool is_view = (result->GetString(row, 1) == "VIEW");
+		if (entries.find(table_name) != entries.end()) {
+			// already loaded (e.g. by a direct lookup): keep it, do not replace it by a name-only stub
+			continue;
+		}
 
 		OracleTableInfo info(schema, table_name);
 		info.is_view = is_view;
@@ -580,6 +584,15 @@ optional_ptr<CatalogEntry> OracleTableSet::CreateTable(OracleTransaction &transa
                                                          BoundCreateTableInfo &info) {
 	auto create_sql = GetOracleCreateTable(info.Base());
 	transaction.Query(create_sql);
+	{
+		// Read the new table back from Oracle so the entry has its Oracle column types and names
+		// (an entry built from the CREATE TABLE info alone cannot be scanned)
+		lock_guard<mutex> l(entry_lock);
+		auto reloaded = ReloadEntry(transaction, info.Base().GetTableName().GetIdentifierName());
+		if (reloaded) {
+			return reloaded;
+		}
+	}
 	auto tbl_entry = make_shared_ptr<OracleTableEntry>(
 	    static_cast<Catalog &>(catalog), static_cast<SchemaCatalogEntry &>(schema),
 	    info.Base());
