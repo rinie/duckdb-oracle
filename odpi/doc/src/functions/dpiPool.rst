@@ -121,7 +121,9 @@ connections by calling the function :func:`dpiPool_acquireConnection()`.
           - The name of the user used for authenticating sessions, as a byte
             string in the encoding used for CHAR data. NULL is also acceptable
             if external authentication is being requested or if a heterogeneous
-            pool is being created.
+            pool is being created. When using token based authentication, this
+            can be set to a proxy user enclosed in square brackets, such as
+            ``[proxy_user]``.
         * - ``userNameLength``
           - IN
           - The length of the userName parameter, in bytes, or 0 if the
@@ -143,10 +145,6 @@ connections by calling the function :func:`dpiPool_acquireConnection()`.
             the encoding used for CHAR data. NULL is also acceptable for
             local connections (identified by the environment variable
             ORACLE_SID).
-        * - ``connectStringLength``
-          - IN
-          - The length of the connectString parameter, in bytes, or 0 if the
-            connectString parameter is NULL.
         * - ``connectStringLength``
           - IN
           - The length of the connectString parameter, in bytes, or 0 if the
@@ -388,7 +386,7 @@ connections by calling the function :func:`dpiPool_acquireConnection()`.
             completion of this function.
 
 .. function:: int dpiPool_reconfigure(dpiPool* pool, uint32_t minSessions, \
-        uint32_t maxSesssions, uint32 sessionIncrement)
+        uint32_t maxSessions, uint32 sessionIncrement)
 
     Changes pool configuration corresponding to members
     :member:`dpiPoolCreateParams.minSessions`,

@@ -87,3 +87,18 @@ the database. All members are initialized to default values using the
    Each member of structure is populated with authentication parameters used for
    token based authentication. This requires Oracle Client 19.4 (or later),
    or 21.5 (or later).
+
+.. member:: const char* dpiCommonCreateParams.transactionPriority
+
+    Specifies the transaction priority to use when creating a standalone
+    connection. It is expected to be NULL or a byte string in the encoding used
+    for CHAR data. The default value is NULL. If specified, the value has the
+    same effect as the SQL statement ALTER SESSION SET TXN_PRIORITY. An empty
+    string is treated in the same way as a NULL value and will result in the
+    transaction priority being set to the database default.
+
+.. member:: uint32_t dpiCommonCreateParams.transactionPriorityLength
+
+    Specifies the length of the
+    :member:`dpiCommonCreateParams.transactionPriority` member, in bytes. The
+    default value is 0.

@@ -1,6 +1,194 @@
 ODPI-C Release notes
 ====================
 
+Version 26.0.0 (September 10, 2026)
+-----------------------------------
+
+#)  Moved to a year-based version number system. The python-oracledb major
+    version number will be the two-digit year in which that major version was
+    first released.
+#)  Added functions :func:`dpiConn_getTransactionPriority()` and
+    :func:`dpiConn_setTransactionPriority()` and the members
+    :member:`dpiCommonCreateParams.transactionPriority` and
+    :member:`dpiCommonCreateParams.transactionPriorityLength` in order to
+    support managing transaction priority session state.
+#)  Added support for using proxy users with token authentication for
+    standalone connections.
+#)  The symbolic link for `libclntsh.so` or `libclntsh.dylib` is now mandatory
+    when loading ODPI-C and attempts will no longer be made to load versioned
+    libraries. On Linux, determine the real path of any specified library so
+    that libraries with `RPATH=$ORIGIN` will load successfully, even when a
+    symbolic link is used.
+#)  Removed the restriction that prevented the parameters ``connectionClass``
+    and ``edition`` from being specified together.
+#)  Error messages that indicate that the database or client version are too
+    old now include the third digit to accommodate the version changes made for
+    Oracle Database 26ai.
+
+
+Version 6.0.0 (May 4, 2026)
+---------------------------
+
+#)  Dropped support for Oracle Client libraries before 19c.
+#)  Dropped alias for `dpiSodaCollNames` and the function
+    `dpiSodaDb_freeCollectionNames()`. The new names `dpiStringList` and
+    `dpiContext_freeStringList()` will now only be effective.
+#)  Added support for building with HP-UX aCC
+    (`issue 206 <https://github.com/oracle/odpi/issues/206>`__).
+#)  Added :func:`dpiConn_setAppContext()` to set application context entries
+    on the connection and :func:`dpiConn_clearAppContext()` to clear the
+    application context for a namespace on the connection.
+#)  Added :func:`dpiConn_stmtFromHandle()` to attach an external OCIStmt
+    handle and :func:`dpiStmt_getHandle()` to get the OCIStmt handle from a
+    statement.
+#)  Added :func:`dpiConn_getPdbName()` to provide the name of the pluggable
+    database (PDB) associated with the connection.
+#)  Added support for binding and fetching sparse vectors with zero indices.
+    The attribute ``isSparse`` was added to the structure
+    :ref:`dpiVectorInfo<dpiVectorInfo>` and should be used for detecting or
+    specifying a sparse vector. Previously the attribute ``numSparseValues``
+    was used for this purpose.
+#)  Fixed macro `DPI_ORACLE_VERSION_TO_NUMBER` to prevent signed integer
+    overflow for version numbers that exceed 21.
+#)  Fixed bug in :func:`dpiQueue_deqMany()` with JSON payloads when using
+    Oracle Database 23ai and later.
+#)  Added length checks for a number of AQ attributes.
+#)  Error ``DPI-1087: not a query`` is now raised when attempting to call
+    :func:`dpiSubscr_prepareStmt()` with SQL that is not a query. Previously,
+    error ``DPI-1013: not supported`` was raised.
+
+
+Version 5.6.4 (November 11, 2025)
+---------------------------------
+
+#)  Fixed bug that caused a segfault to take place when fetching LOBs without
+    enabling threaded mode
+    (`issue 200 <https://github.com/oracle/odpi/issues/200>`__).
+#)  Fixed bug that prevented an error from being returned when attempting to
+    scroll before the start of the result set with mode
+    ``DPI_MODE_FETCH_PRIOR``
+    (`issue 201 <https://github.com/oracle/odpi/issues/201>`__).
+#)  Fixed bug that caused ``ORA-03137: malformed TTC packet from client
+    rejected`` exception to be raised when attempting to execute a scrollable
+    statement with mode ``DPI_MODE_EXEC_DESCRIBE_ONLY``
+    (`issue 202 <https://github.com/oracle/odpi/issues/202>`__).
+#)  Fixed segfault on some platforms when trying to access vector flags on
+    Oracle type information.
+#)  Connectivity and interoperability with Oracle Database and Oracle Client
+    libraries older than version 19 is deprecated and will be removed in a
+    future version of ODPI-C. Production use, and availability of database and
+    client software, is detailed in `Release Schedule of Current Database
+    Releases <https://support.oracle.com/epmos/faces/
+    DocumentDisplay?id=742060.1>`__.
+
+
+Version 5.6.3 (October 6, 2025)
+-------------------------------
+
+#)  Add NULL terminator to buffers used for returning NUMBER column data as
+    text. This eliminates the need for making a copy when using C conversion
+    functions such as ``strtoll()`` and ``strtod()``.
+#)  Fixed bug with error wrapping which could result in garbage characters
+    being introduced. Fixed potential bug when truncation could occur with very
+    large error messages.
+
+
+Version 5.6.2 (July 29, 2025)
+-----------------------------
+
+#)  Fixed bug resulting in a segfault when environment variable
+    ``DPI_DEBUG_LEVEL`` includes flag ``DPI_DEBUG_LEVEL_LOAD_LIB`` on Windows
+    (`issue 197 <https://github.com/oracle/odpi/issues/197>`__).
+#)  Fixed bug that masked the error thrown when a PL/SQL fixup callback for
+    session state failed.
+#)  Fixed null checks and version checks for functions
+    :func:`dpiConn_beginSessionlessTransaction()`,
+    :func:`dpiConn_resumeSessionlessTransaction()`, and
+    :func:`dpiConn_suspendSessionlessTransaction()`.
+
+
+Version 5.6.1 (July 16, 2025)
+-----------------------------
+
+#)  Fixed bug resulting in a segfault when a pooled connection is returned to
+    the pool with an active sessionless transaction.
+
+
+Version 5.6.0 (June 26, 2025)
+-----------------------------
+
+#)  Added support for Oracle Database 23ai sessionless transactions with new
+    APIs - :func:`dpiConn_beginSessionlessTransaction()`,
+    :func:`dpiConn_resumeSessionlessTransaction()` and
+    :func:`dpiConn_suspendSessionlessTransaction()`. Also, added a new datatype
+    :ref:`dpiSessionlessTransactionId<dpiSessionlessTransactionId>`.
+#)  Added support for fetching SQL_ID
+    (`issue 194 <https://github.com/oracle/odpi/issues/194>`__).
+#)  Fixed bug resulting in a segfault when fetching nested collections.
+#)  Fixed bug resulting in a non-zero integer value for the registration ID of
+    Oracle Advanced Queueing subscriptions.
+#)  Adjusted Makfile to allow for greater flexbility in building, as suggested
+    (`issue 196 <https://github.com/oracle/odpi/issues/196>`__).
+
+
+Version 5.5.1 (March 25, 2025)
+------------------------------
+
+#)  Fixed bug resulting in a segfault when unable to load the Oracle Client
+    libraries.
+#)  Fixed bug which resulted in error ``ORA-24328: illegal attribute value``
+    when calling :func:`dpiConn_getObjectType()` with Oracle Client libraries
+    11.2.
+#)  Improved error message when calling :func:`dpiVector_getValue()` and
+    :func:`dpiVector_setValue()` with sparse vectors and Oracle Client
+    libraries 23.6 or earlier.
+#)  Improved error message when calling :func:`dpiConn_getMaxOpenCursors()`
+    when using Oracle Client libraries 11.2.
+
+
+Version 5.5.0 (February 25, 2025)
+---------------------------------
+
+#)  Added support for Oracle Database 23.7 SPARSE vectors.
+#)  Added support for giving the path of the relative Oracle Client
+    configuration directory if no configuration directory was supplied when
+    calling :func:`dpiContext_createWithParams()`.
+#)  Fixed bug that cleared the isRecoverable flag when an Oracle error is
+    wrapped by an ODPI-C specific error.
+#)  Added method :func:`dpiData_getVector()` to retrieve the value of the data
+    when the native type is `DPI_NATIVE_TYPE_VECTOR`.
+
+
+Version 5.4.1 (December 11, 2024)
+---------------------------------
+
+#)  Fixed bug calculating the maximum identifier length when using Oracle
+    Client libraries 12.1, or older. The returned value may now be 0 when the
+    size cannot be reliably determined by ODPI-C, which occurs when using
+    Oracle Client libraries 12.1 (or older) to connect to Oracle Database 12.2,
+    or later.
+#)  Fixed bug resulting in a segfault when using external authentication
+    (`python-oracledb issue 425
+    <https://github.com/oracle/python-oracledb/issues/425>`__).
+
+
+Version 5.4.0 (November 5, 2024)
+--------------------------------
+
+#)  Added support for getting information about a connection in the structure
+    :ref:`dpiConnInfo<dpiConnInfo>` using the new method
+    :func:`dpiConn_getInfo()`.
+#)  Fixed bug resulting in error ``ORA-25707: The token is invalid`` when
+    using IAM token based authentication and creating multiple pooled
+    connections.
+#)  Fixed bug affecting Application Continuity with older Oracle Client
+    libraries by ensuring that the mode indicating bound REF CURSOR statement
+    handles are never re-used is only enabled with Oracle Client libraries 23.6
+    and higher.
+#)  Disable support added in Oracle Client 23ai for connection pool ping
+    intervals since this functionality is already available in ODPI-C.
+
+
 Version 5.3 (July 23, 2024)
 ---------------------------
 
@@ -10,7 +198,7 @@ Version 5.3 (July 23, 2024)
     (`python-oracledb issue 346
     <https://github.com/oracle/python-oracledb/issues/346>`__).
 #)  Internal change: let the Oracle Client library know that bound REF CURSOR
-    statement handles will not be re-used for any other purpose.
+    statement handles are never re-used.
 
 
 Version 5.2 (March 11, 2024)

@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// Copyright (c) 2016, 2024, Oracle and/or its affiliates.
+// Copyright (c) 2016, 2025, Oracle and/or its affiliates.
 //
 // This software is dual-licensed to you under the Universal Permissive License
 // (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl and Apache License
@@ -103,11 +103,12 @@ int dpiError__set(dpiError *error, const char *action, dpiErrorNum errorNum,
         error->buffer->action = action;
         error->buffer->errorNum = errorNum;
         va_start(varArgs, errorNum);
-        error->buffer->messageLength =
-                (uint32_t) vsnprintf(error->buffer->message,
+        (void) vsnprintf(error->buffer->message,
                 sizeof(error->buffer->message),
                 dpiErrorMessages[errorNum - DPI_ERR_NO_ERR], varArgs);
         va_end(varArgs);
+        error->buffer->messageLength =
+                (uint32_t) strlen(error->buffer->message);
         if (dpiDebugLevel & DPI_DEBUG_LEVEL_ERRORS)
             dpiDebug__print("internal error %.*s (%s / %s)\n",
                     error->buffer->messageLength, error->buffer->message,
@@ -227,11 +228,9 @@ int dpiError__setFromOCI(dpiError *error, int status, dpiConn *conn,
             case  3136: // inbound connection timed out
             case  3156: // OCI call timed out
             case 12161: // TNS:internal error: partial data received
-                callTimeout = 0;
-                if (conn->env->versionInfo->versionNum >= 18)
-                    dpiOci__attrGet(conn->handle, DPI_OCI_HTYPE_SVCCTX,
-                            (void*) &callTimeout, 0, DPI_OCI_ATTR_CALL_TIMEOUT,
-                            NULL, error);
+                dpiOci__attrGet(conn->handle, DPI_OCI_HTYPE_SVCCTX,
+                        (void*) &callTimeout, 0, DPI_OCI_ATTR_CALL_TIMEOUT,
+                        NULL, error);
                 if (callTimeout > 0)
                     return dpiError__wrap(error, DPI_ERR_CALL_TIMEOUT,
                             callTimeout, error->buffer->code);
@@ -306,25 +305,23 @@ int dpiError__wrap(dpiError *error, dpiErrorNum errorNum, ...)
 
     // clear original error and set new error
     error->buffer->code = 0;
-    error->buffer->isRecoverable = 0;
-    error->buffer->isWarning = 0;
-    error->buffer->offset = 0;
     error->buffer->errorNum = errorNum;
     va_start(varArgs, errorNum);
-    error->buffer->messageLength =
-            (uint32_t) vsnprintf(error->buffer->message,
-            sizeof(error->buffer->message),
+    (void) vsnprintf(error->buffer->message, sizeof(error->buffer->message),
             dpiErrorMessages[errorNum - DPI_ERR_NO_ERR], varArgs);
     va_end(varArgs);
+    error->buffer->messageLength = (uint32_t) strlen(error->buffer->message);
 
     // concatenate original message to new one (separated by line feed)
     if (origMessage) {
         ptr = error->buffer->message + error->buffer->messageLength;
         ptrLength = sizeof(error->buffer->message) -
                 error->buffer->messageLength;
-        error->buffer->messageLength += (uint32_t) snprintf(ptr, ptrLength,
-                "\n%*s", origMessageLength, origMessage);
+        (void) snprintf(ptr, ptrLength, "\n%.*s", origMessageLength,
+                origMessage);
         free(origMessage);
+        error->buffer->messageLength =
+                (uint32_t) strlen(error->buffer->message);
     }
 
     // log message, if applicable

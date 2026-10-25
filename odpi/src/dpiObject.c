@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// Copyright (c) 2016, 2022, Oracle and/or its affiliates.
+// Copyright (c) 2016, 2025, Oracle and/or its affiliates.
 //
 // This software is dual-licensed to you under the Universal Permissive License
 // (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl and Apache License
@@ -214,9 +214,6 @@ int dpiObject__closeHelper(dpiObject *obj, int checkError, dpiError *error)
             obj->indicator, checkError, error) < 0)
         return DPI_FAILURE;
     obj->indicator = NULL;
-    if (!obj->type->conn->closing)
-        dpiHandleList__removeHandle(obj->type->conn->objects,
-                obj->openSlotNum);
     return DPI_SUCCESS;
 }
 
@@ -229,6 +226,8 @@ void dpiObject__free(dpiObject *obj, dpiError *error)
 {
     dpiObject__close(obj, 0, error);
     if (obj->type) {
+        dpiHandleList__removeHandle(obj->type->conn->objects,
+                obj->openSlotNum);
         dpiGen__setRefCount(obj->type, error, -1);
         obj->type = NULL;
     }
@@ -352,8 +351,9 @@ static int dpiObject__fromOracleValue(dpiObject *obj, dpiError *error,
         case DPI_ORACLE_TYPE_OBJECT:
             if (typeInfo->objectType &&
                     nativeTypeNum == DPI_NATIVE_TYPE_OBJECT) {
-                void *instance = (typeInfo->objectType->isCollection) ?
-                        *value->asCollection : value->asRaw;
+                void *instance = (typeInfo->objectType->isCollection &&
+                    !obj->type->isCollection) ? *value->asCollection :
+                            value->asRaw;
                 dpiObject *tempObj;
                 if (dpiObject__allocate(typeInfo->objectType, instance,
                         indicator, obj, &tempObj, error) < 0)

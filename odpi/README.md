@@ -38,21 +38,28 @@ See [CONTRIBUTING](https://github.com/oracle/odpi/blob/main/CONTRIBUTING.md).
 ## Drivers Using ODPI-C
 
 Oracle Drivers:
-* [python-oracledb](https://oracle.github.io/python-oracledb) Python interface (previously known as [cx_Oracle](https://oracle.github.io/python-cx_Oracle)).
+* [python-oracledb](https://oracle.github.io/python-oracledb) Python interface (previously known as cx_Oracle).
 * [node-oracledb](https://oracle.github.io/node-oracledb) Node.js module.
 
 Third-party Drivers:
 * [godror](https://github.com/godror/godror) Go Driver.
 * [odpic-raw](https://github.com/leptonyu/odpic-raw)  Haskell Raw Bindings.
+* [oracle-simple](https://github.com/haskell-oracle/oracle-simple) Haskell driver.
 * [ruby-ODPI ](https://github.com/kubo/ruby-odpi) Ruby Interface.
 * [rust-oracle ](https://github.com/kubo/rust-oracle) Driver for Rust.
 * [Oracle.jl](https://github.com/felipenoris/Oracle.jl) Driver for Julia.
 * [oranif](https://github.com/KonnexionsGmbH/oranif) Driver for Erlang.
 * [nimodpi](https://github.com/mikra01/nimodpi) Driver for Nim.
+* [Tcl](https://github.com/bagnongithub/oratcl) Driver for Tcl.
+
+## Security
+
+Please consult the [security guide](./SECURITY.md) for our responsible security
+vulnerability disclosure process.
 
 ## License
 
-Copyright (c) 2016, 2024, Oracle and/or its affiliates.
+Copyright (c) 2016, 2026, Oracle and/or its affiliates.
 
 This software is dual-licensed to you under the Universal Permissive License
 (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl and Apache License

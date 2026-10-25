@@ -8,8 +8,10 @@ connections using token based authentication. Oracle Client libraries
 must be 19.14 (or later), or 21.5 (or later).
 
 The externalAuth must be set to 1 and in addition, homogeneous must be
-set to 1 when creating a pool. The user (or username) and password properties
-should not be set.
+set to 1 when creating a pool. The password property should not be set.
+The user (or username) property should only be set when specifying a proxy
+user for token based authentication, in which case the proxy user must be
+enclosed in square brackets, such as ``[proxy_user]``.
 
 Both token and privateKey (and their lengths) must be set while using IAM
 for token based authentication.

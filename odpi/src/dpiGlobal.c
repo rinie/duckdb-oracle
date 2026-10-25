@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// Copyright (c) 2016, 2022, Oracle and/or its affiliates.
+// Copyright (c) 2016, 2026, Oracle and/or its affiliates.
 //
 // This software is dual-licensed to you under the Universal Permissive License
 // (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl and Apache License
@@ -66,6 +66,12 @@ static int dpiGlobalInitialized = 0;
 // initialization of ODPI-C
 static dpiMutexType dpiGlobalMutex;
 
+// a global null terminated string is retained containing a calculated
+// configuration directory based on the location of the library that has been
+// loaded; this is only performed if a configuration directory is not supplied
+// by the first call that initialized the Oracle Client libraries
+static char *dpiGlobalConfigDir = NULL;
+
 // forward declarations of internal functions only used in this file
 static int dpiGlobal__extendedInitialize(dpiContextCreateParams *params,
         const char *fnName, dpiError *error);
@@ -85,14 +91,6 @@ int dpiGlobal__ensureInitialized(const char *fnName,
         dpiContextCreateParams *params, dpiVersionInfo **clientVersionInfo,
         dpiError *error)
 {
-    // initialize error buffer output to global error buffer structure; this is
-    // the value that is used if an error takes place before the thread local
-    // error structure can be returned
-    error->handle = NULL;
-    error->buffer = &dpiGlobalErrorBuffer;
-    error->buffer->fnName = fnName;
-
-    // perform global initializations, if needed
     if (!dpiGlobalInitialized) {
         dpiMutex__acquire(dpiGlobalMutex);
         if (!dpiGlobalInitialized)
@@ -125,7 +123,8 @@ static int dpiGlobal__extendedInitialize(dpiContextCreateParams *params,
         dpiDebug__print("fn start %s\n", fnName);
 
     // load OCI library
-    if (dpiOci__loadLib(params, &dpiGlobalClientVersionInfo, error) < 0)
+    if (dpiOci__loadLib(params, &dpiGlobalClientVersionInfo,
+            &dpiGlobalConfigDir, error) < 0)
         return DPI_FAILURE;
 
     // create threaded OCI environment for storing error buffers and for
@@ -188,6 +187,10 @@ static void dpiGlobal__finalize(void)
         dpiOci__handleFree(dpiGlobalEnvHandle, DPI_OCI_HTYPE_ENV);
         dpiGlobalEnvHandle = NULL;
     }
+    if (dpiGlobalConfigDir) {
+        free(dpiGlobalConfigDir);
+        dpiGlobalConfigDir = NULL;
+    }
     dpiMutex__release(dpiGlobalMutex);
 }
 
@@ -247,7 +250,8 @@ static int dpiGlobal__getErrorBuffer(const char *fnName, dpiError *error)
 // an error structure cannot be determined for some reason, the global error
 // buffer structure is returned instead.
 //-----------------------------------------------------------------------------
-int dpiGlobal__initError(const char *fnName, dpiError *error)
+int dpiGlobal__initError(const char *fnName, int requireGlobalInit,
+        dpiError *error)
 {
     // initialize error buffer output to global error buffer structure; this is
     // the value that is used if an error takes place before the thread local
@@ -256,6 +260,8 @@ int dpiGlobal__initError(const char *fnName, dpiError *error)
     error->buffer = &dpiGlobalErrorBuffer;
     if (fnName)
         error->buffer->fnName = fnName;
+    if (!requireGlobalInit)
+        return DPI_SUCCESS;
 
     // check to see if global environment has been initialized; if not, no call
     // to dpiContext_createWithParams() was made successfully

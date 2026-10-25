@@ -70,8 +70,9 @@ credentials used for connecting to the database.
     Specifies whether external authentication should be used to create the
     connection. If this value is 0, the user name and password values must be
     specified in the call to :func:`dpiConn_create()`; otherwise, the user
-    name and password values must be zero length or NULL. The default value is
-    0.
+    name and password values must be zero length or NULL, except when the user
+    name specifies a proxy user for token based authentication. The default
+    value is 0.
 
 .. member:: void* dpiConnCreateParams.externalHandle
 

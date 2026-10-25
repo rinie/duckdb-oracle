@@ -27,6 +27,39 @@ handles.
           - The connection to which a reference is to be added. If the
             reference is NULL or invalid, an error is returned.
 
+.. function:: int dpiConn_beginSessionlessTransaction(dpiConn* conn, \
+        dpiSessionlessTransactionId* transactionId, uint32_t timeout, \
+        int deferRoundTrip)
+
+    Begins a new sessionless transaction on the next server round-trip.
+
+    The function returns DPI_SUCCESS for success and DPI_FAILURE for failure.
+
+    .. parameters-table::
+
+        * - ``conn``
+          - IN
+          - A reference to the connection on which the sessionless transaction
+            is to begin. If the reference is NULL or invalid, an error is
+            returned.
+        * - ``transactionId``
+          - IN/OUT
+          - A unique identifier for the sessionless transaction. If the length
+            of this parameter is zero, then the transactionId is assigned a
+            random library-generated value. Both the length and value
+            attributes of the transactionId are updated accordingly.
+        * - ``timeout``
+          - IN
+          - The duration in seconds that this transaction can be resumed after
+            it is suspended. If the timeout expires and the transaction was
+            not resumed, it will roll back. This value cannot be set to 0 and
+            will remain unchanged until the transaction completes.
+        * - ``deferRoundTrip``
+          - IN
+          - Whether to defer a round trip to the server or not. If the value is
+            true (non-zero) the next round trip to the server will send the
+            request instead.
+
 .. function:: int dpiConn_breakExecution(dpiConn* conn)
 
     Performs an immediate (asynchronous) termination of any currently executing
@@ -78,6 +111,28 @@ handles.
         * - ``newPasswordLength``
           - IN
           - The length of the new password parameter, in bytes.
+
+.. function:: int dpiConn_clearAppContext(dpiConn* conn, \
+        const char* namespaceName, uint32_t namespaceNameLength)
+
+    Clears all key/value pairs from the specified application context namespace
+    associated with the connection.
+
+    The function returns DPI_SUCCESS for success and DPI_FAILURE for failure.
+
+    .. parameters-table::
+
+        * - ``conn``
+          - IN
+          - A reference to the connection whose application context is to be
+            cleared. If the reference is NULL or invalid, an error is returned.
+        * - ``namespaceName``
+          - IN
+          - Specifies the value of the "namespace" parameter passed to
+            sys_context(), as a byte string in the encoding used for CHAR data.
+        * - ``namespaceNameLength``
+          - IN
+          - Specifies the length of ``namespaceName`` in bytes.
 
 .. function:: int dpiConn_close(dpiConn* conn, dpiConnCloseMode mode, \
         const char* tag, uint32_t tagLength)
@@ -150,7 +205,9 @@ handles.
           - The name of the user used for authenticating the user, as a byte
             string in the encoding used for CHAR data. NULL is also acceptable
             if external authentication is being requested or if credentials
-            were specified when the pool was created.
+            were specified when the pool was created. When using token based
+            authentication, this can be set to a proxy user enclosed in square
+            brackets, such as ``[proxy_user]``.
         * - ``userNameLength``
           - IN
           - The length of the userName parameter, in bytes, or 0 if the
@@ -493,6 +550,29 @@ handles.
             handle can be used within OCI calls independently of the library,
             but care must be taken not to cause problems due to shared use.
 
+.. function:: int dpiConn_getInfo(dpiConn* conn, dpiConnInfo* info)
+
+    Returns information about the connection.
+
+    The function returns DPI_SUCCESS for success and DPI_FAILURE for failure.
+
+    .. parameters-table::
+
+        * - ``conn``
+          - IN
+          - A reference to the connection from which information is to be
+            retrieved. If the reference is NULL or invalid, an error is
+            returned.
+        * - ``info``
+          - OUT
+          - A pointer to a structure of type :ref:`dpiConnInfo<dpiConnInfo>`
+            which will be filled in with information about the connection upon
+            successful completion of the function. The pointers in the
+            structure will remain valid as long as the connection itself is
+            open. When using a pooled server process, however, the information
+            in the structure may become stale when a new session is associated
+            with the connection.
+
 .. function:: int dpiConn_getInstanceName(dpiConn* conn, \
         const char** value, uint32_t* valueLength)
 
@@ -615,7 +695,8 @@ handles.
 
     Returns the maximum number of cursors that can be opened. This is the same
     value returned by the SQL expression
-    ``SELECT VALUE FROM V$PARAMETER WHERE NAME = 'open_cursors'``.
+    ``SELECT VALUE FROM V$PARAMETER WHERE NAME = 'open_cursors'``. This method
+    requires Oracle Client libraries 12.1 (or higher).
 
     This function returns DPI_SUCCESS for success and DPI_FAILURE for failure.
 
@@ -688,6 +769,34 @@ handles.
           - OUT
           - The length of the attribute which will be populated upon
             succesfully completing this function.
+
+.. function:: int dpiConn_getPdbName(dpiConn* conn, const char** value, \
+        uint32_t* valueLength)
+
+    Returns the name of the pluggable database (PDB) associated with the
+    connection. This is the same value returned by the SQL expression
+    ``select sys_context('userenv', 'con_name') from dual``.
+
+    This function returns DPI_SUCCESS for success and DPI_FAILURE for failure.
+
+    .. parameters-table::
+
+        * - ``conn``
+          - IN
+          - A reference to the connection from which the pluggable database
+            name is to be retrieved. If the reference is NULL or invalid, an
+            error is returned.
+        * - ``value``
+          - OUT
+          - A pointer to the pluggable database name, as a byte string in the
+            encoding used for CHAR data, which will be populated upon
+            successful completion of this function. The string returned will
+            remain valid as long as a reference to the connection is held.
+        * - ``valueLength``
+          - OUT
+          - A pointer to the length of the pluggable database name, in bytes,
+            which will be populated upon successful completion of this
+            function.
 
 .. function:: int dpiConn_getServerVersion(dpiConn* conn, \
         const char** releaseString, uint32_t* releaseStringLength, \
@@ -810,11 +919,38 @@ handles.
           - A reference to the connection in which the presence of a
             transaction should be detected. If the reference is NULL or
             invalid, an error is returned.
-        * - ``value``
+        * - ``txnInProgress``
           - OUT
           - A pointer to the transaction in progress, which will be populated
             with 0 (no transaction) or 1 (a transaction is in progress) upon
             successful completion of this function.
+
+.. function:: int dpiConn_getTransactionPriority(dpiConn* conn, \
+        const char** value, uint32_t* valueLength)
+
+    Returns the transaction priority associated with the connection.
+
+    The function returns DPI_SUCCESS for success and DPI_FAILURE for failure.
+
+    .. parameters-table::
+
+        * - ``conn``
+          - IN
+          - A reference to the connection from which the transaction priority
+            is to be retrieved. If the reference is NULL or invalid, an error
+            is returned.
+        * - ``value``
+          - OUT
+          - A pointer to the transaction priority, as a byte string in the
+            encoding used for CHAR data, which will be populated upon
+            successful completion of this function. The string returned will
+            remain valid as long as a reference to the connection is held and
+            the transaction priority is not changed by some means.
+        * - ``valueLength``
+          - OUT
+          - A pointer to the length of the transaction priority, in bytes,
+            which will be populated upon successful completion of this
+            function.
 
 .. function:: int dpiConn_newDeqOptions(dpiConn* conn, dpiDeqOptions** options)
 
@@ -1173,6 +1309,38 @@ handles.
           - The connection from which a reference is to be released. If the
             reference is NULL or invalid, an error is returned.
 
+.. function:: int dpiConn_resumeSessionlessTransaction(dpiConn* conn, \
+        dpiSessionlessTransactionId* transactionId, uint32_t timeout, \
+        int deferRoundTrip)
+
+    Resumes an existing sessionless transaction on the next server round-trip.
+
+    The function returns DPI_SUCCESS for success and DPI_FAILURE for failure.
+
+    .. parameters-table::
+
+        * - ``conn``
+          - IN
+          - A reference to the connection on which the sessionless transaction
+            is to be resumed. If the reference is NULL or invalid, an error is
+            returned.
+        * - ``transactionId``
+          - IN
+          - A unique identifier for the sessionless transaction. The length of
+            this parameter must be non-zero and its value equal to an existing
+            sessionless transaction.
+        * - ``timeout``
+          - IN
+          - The duration in seconds that it waits to resume a sessionless
+            transaction (when it is being used by other session). If the
+            timeout expires and the sessionless transaction was not resumed,
+            an error is thrown.
+        * - ``deferRoundTrip``
+          - IN
+          - Whether to defer a round trip to the server or not. If the value is
+            true (non-zero) the next round trip to the server will send the
+            request instead.
+
 .. function:: int dpiConn_rollback(dpiConn* conn)
 
     Rolls back the current active transaction.
@@ -1209,6 +1377,27 @@ handles.
         * - ``valueLength``
           - IN
           - The length of the value that is to be set, in bytes.
+
+.. function:: int dpiConn_setAppContext(dpiConn* conn, \
+        uint32_t numAppContext, dpiAppContext* appContext)
+
+    Sets one or more application context entries on the connection.
+
+    The function returns DPI_SUCCESS for success and DPI_FAILURE for failure.
+
+    .. parameters-table::
+
+        * - ``conn``
+          - IN
+          - A reference to the connection whose application context is to be
+            updated. If the reference is NULL or invalid, an error is returned.
+        * - ``numAppContext``
+          - IN
+          - The number of elements in ``appContext``.
+        * - ``appContext``
+          - IN
+          - An array of :ref:`dpiAppContext<dpiAppContext>` structures. Each
+            element supplies the namespace, attribute name and value to apply.
 
 .. function:: int dpiConn_setCallTimeout(dpiConn* conn, uint32_t value)
 
@@ -1499,6 +1688,36 @@ handles.
           - IN
           - The new size of the statement cache, in number of statements.
 
+.. function:: int dpiConn_setTransactionPriority(dpiConn* conn, \
+        const char* value, uint32_t valueLength)
+
+    Sets the transaction priority to be used on the connection. This has the
+    same effect as the SQL statement ALTER SESSION SET TXN_PRIORITY. The value
+    will be changed when the next call requiring a round trip to the server is
+    performed. If the new transaction priority is not valid, the same error is
+    returned as when the alter session statement is executed. Setting the value
+    to an empty string resets the transaction priority to the database default.
+    See the Oracle Database documentation on
+    `TXN_PRIORITY <https://docs.oracle.com/en/database/oracle/oracle-database/26/refrn/TXN_PRIORITY.html>`__
+    for more information.
+
+    The function returns DPI_SUCCESS for success and DPI_FAILURE for failure.
+
+    .. parameters-table::
+
+        * - ``conn``
+          - IN
+          - A reference to the connection in which the transaction priority is
+            to be set. If the reference is NULL or invalid, an error is
+            returned.
+        * - ``value``
+          - IN
+          - A pointer to a byte string in the encoding used for CHAR data
+            which will be used to set the transaction priority.
+        * - ``valueLength``
+          - IN
+          - The length of the value that is to be set, in bytes.
+
 .. function:: int dpiConn_shutdownDatabase(dpiConn* conn, dpiShutdownMode mode)
 
     Shuts down the database. This function must be called twice for the
@@ -1575,6 +1794,30 @@ handles.
           - One or more of the values from the enumeration
             :ref:`dpiStartupMode<dpiStartupMode>`, OR'ed together.
 
+.. function:: int dpiConn_stmtFromHandle(dpiConn* conn, \
+        void* externalHandle, dpiStmt** stmt)
+
+    Returns a reference to a statement with the associated external handle.
+    Note that the OCIStmt handle is shared and care must be taken not to free
+    it or otherwise invalidate it while it is in use by the statement.
+
+    The function returns DPI_SUCCESS for success and DPI_FAILURE for failure.
+
+    .. parameters-table::
+
+        * - ``conn``
+          - IN
+          - A reference to the connection to which the statement should be
+            attached. The OCIStmt handle should be associated with the same OCI
+            service contenxt handle in use by this connection.
+        * - ``externalHandle``
+          - IN
+          - A pointer to an OCIStmt external handle.
+        * - ``stmt``
+          - OUT
+          - A pointer to a reference to the statement that is populated from
+            the external OCIStmt handle.
+
 .. function:: int dpiConn_subscribe(dpiConn* conn, \
         dpiSubscrCreateParams* params, dpiSubscr** subscr)
 
@@ -1601,6 +1844,21 @@ handles.
           - OUT
           - A pointer to a reference to the subscription that is created by this
             function.
+
+.. function:: int dpiConn_suspendSessionlessTransaction(dpiConn* conn, \
+        uint32_t flags)
+
+    Suspends the active sessionless transaction on the current connection.
+
+    The function returns DPI_SUCCESS for success and DPI_FAILURE for failure.
+
+    .. parameters-table::
+
+        * - ``conn``
+          - IN
+          - A reference to the connection on which the sessionless transaction
+            is to be suspended. If the reference is NULL or invalid, an error is
+            returned.
 
 .. function:: int dpiConn_tpcBegin(dpiConn* conn, dpiXid* xid, \
         uint32_t transactionTimeout, uint32_t flags)

@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// Copyright (c) 2016, 2022, Oracle and/or its affiliates.
+// Copyright (c) 2016, 2026, Oracle and/or its affiliates.
 //
 // This software is dual-licensed to you under the Universal Permissive License
 // (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl and Apache License
@@ -253,10 +253,10 @@ int dpiSubscr__create(dpiSubscr *subscr, dpiConn *conn,
     // with 19.4 client and database
     mode = DPI_OCI_DEFAULT;
     if (params->clientInitiated) {
-        if (dpiUtils__checkClientVersion(conn->env->versionInfo, 19, 4,
+        if (dpiUtils__checkClientVersion(conn->env->versionInfo, 19, 4, 0,
                 error) < 0)
             return DPI_FAILURE;
-        if (dpiUtils__checkDatabaseVersion(conn, 19, 4, error) < 0)
+        if (dpiUtils__checkDatabaseVersion(conn, 19, 4, 0, error) < 0)
             return DPI_FAILURE;
         mode = DPI_OCI_SECURE_NOTIFICATION;
     }
@@ -264,11 +264,16 @@ int dpiSubscr__create(dpiSubscr *subscr, dpiConn *conn,
         return DPI_FAILURE;
     subscr->registered = 1;
 
-    // acquire the registration id
-    if (dpiOci__attrGet(subscr->handle, DPI_OCI_HTYPE_SUBSCRIPTION,
-            &params->outRegId, NULL, DPI_OCI_ATTR_SUBSCR_CQ_REGID,
-            "get registration id", error) < 0)
-        return DPI_FAILURE;
+    // acquire the registration id, if applicable; for AQ, the value is always
+    // set to zero
+    if (params->subscrNamespace == DPI_SUBSCR_NAMESPACE_AQ) {
+        params->outRegId = 0;
+    } else {
+        if (dpiOci__attrGet(subscr->handle, DPI_OCI_HTYPE_SUBSCRIPTION,
+                &params->outRegId, NULL, DPI_OCI_ATTR_SUBSCR_CQ_REGID,
+                "get registration id", error) < 0)
+            return DPI_FAILURE;
+    }
 
     return DPI_SUCCESS;
 }
@@ -674,7 +679,7 @@ static int dpiSubscr__prepareStmt(dpiSubscr *subscr, dpiStmt *stmt,
         return DPI_FAILURE;
     if (stmt->statementType != DPI_STMT_TYPE_SELECT)
         return dpiError__set(error, "subscr prepare statement",
-                DPI_ERR_NOT_SUPPORTED);
+                DPI_ERR_NOT_A_QUERY);
 
     // fetch array size is set to 1 in order to avoid over allocation since
     // the query is not really going to be used for fetching rows, just for

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Dependencies
+
+- Update [ODPI-C](https://github.com/oracle/odpi) from v5.3.0 to **v26.0.0** (ODPI-C now uses the two-digit release year as its major version)
+
+### Breaking changes (from ODPI-C)
+
+- Oracle Client libraries older than **19c** are no longer supported (dropped in ODPI-C 6.0)
+- On Linux and macOS the unversioned `libclntsh.so` / `libclntsh.dylib` symlink is now mandatory; ODPI-C 26 no longer falls back to the versioned library name
+
 ### Performance
 
 - Data dictionary queries (table names, columns, constraints) now fetch 2000 rows per network round trip instead of ODPI-C's default of 100, which matters most for the bulk queries of `LOAD_COLUMNS` and for remote databases
