@@ -63,8 +63,19 @@ ATTACH 'user/password@host:1521/service' AS mydb (TYPE oracle, SCHEMA 'HR', LOAD
 | `PRIVILEGE_LEVEL` | `user` | Which data dictionary views are used. `user`: only the connected user's own schema (`USER_*` views). `all`: every schema the user can see (`ALL_*` views). `dba`: `DBA_*` views, requires the DBA role |
 | `ISOLATION_LEVEL` | `read committed` | `read committed` or `serializable` |
 | `LOAD_COLUMNS` | `false` | Fetch the columns and key constraints of every table when a schema is listed (see below) |
+| `READ_ONLY` | | Standard DuckDB option (no value): refuse every statement that would change the database (see below) |
 
 By default only the connected user's own schema is visible. To browse tables owned by someone else, use `SCHEMA 'OWNER'` or `PRIVILEGE_LEVEL 'all'`.
+
+### READ_ONLY
+
+```sql
+ATTACH 'user/password@host:1521/service' AS mydb (TYPE oracle, READ_ONLY);
+```
+
+On a read-only attach DuckDB rejects every `INSERT`, `UPDATE`, `DELETE`, `MERGE` and DDL statement on it (`Cannot execute statement of type "CREATE" on database "mydb" which is attached in read-only mode!`) before anything reaches Oracle, and the extension starts each of its transactions with `SET TRANSACTION READ ONLY`.
+
+The read-only flag belongs to the attached database. The table functions `oracle_execute()`, `oracle_query()`, `oracle_scan()` and `oracle_attach()` take their own connection string and ignore it; `oracle_execute()` can still change data. If writes must be impossible, connect with an Oracle account that only has `SELECT` rights.
 
 ### LOAD_COLUMNS
 

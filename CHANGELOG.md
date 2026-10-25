@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+
+- README: document the `READ_ONLY` ATTACH option (checked on Oracle 19c: reads work, `CREATE TABLE` is refused) and that the `oracle_*` table functions ignore it
+
+---
+
 ## v2.0.1 (2026-10-25) — DuckDB 2.0.0
 
 ### Fixes (found with a scratch-table test on Oracle 19c)
