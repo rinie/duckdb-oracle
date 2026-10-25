@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.0.4 (2026-10-25) — DuckDB 2.0.0
 
 ### Fixes
 
